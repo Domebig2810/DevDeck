@@ -1,3 +1,6 @@
 /devdeck-control/.venv/
 /devdeck-control/idea/
 /.idea/
+.DS_Store
+devdeck-control/.DS_Store
+devdeck-control/configs.db

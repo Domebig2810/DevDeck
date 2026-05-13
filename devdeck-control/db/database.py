@@ -1,7 +1,9 @@
-import sqlite3
 import json
+import sqlite3
+from dataclasses import asdict
 from pathlib import Path
-from models.configuration import Configuration
+
+from models.configuration import ButtonConfig, Configuration
 
 DB_PATH = Path("configs.db")
 
@@ -25,25 +27,36 @@ def init_db():
         """)
 
 
+def _buttons_to_json(buttons: list[ButtonConfig]) -> str:
+    return json.dumps([asdict(b) for b in buttons])
+
+
+def _cfg_from_row(row) -> tuple[int, Configuration]:
+    # `images` column kept for legacy; new data lives inside buttons JSON
+    return row["id"], Configuration(
+        name=row["name"],
+        buttons=json.loads(row["buttons"]),
+        images=json.loads(row["images"]),
+        pots=json.loads(row["pots"]),
+    )
+
+
 def load_all() -> list[tuple[int, Configuration]]:
     with _connect() as conn:
         rows = conn.execute("SELECT * FROM configurations ORDER BY id").fetchall()
-    return [
-        (row["id"], Configuration(
-            name=row["name"],
-            buttons=json.loads(row["buttons"]),
-            images=json.loads(row["images"]),
-            pots=json.loads(row["pots"]),
-        ))
-        for row in rows
-    ]
+    return [_cfg_from_row(r) for r in rows]
 
 
 def insert(cfg: Configuration) -> int:
     with _connect() as conn:
         cur = conn.execute(
             "INSERT INTO configurations (name, buttons, images, pots) VALUES (?, ?, ?, ?)",
-            (_s(cfg.name), json.dumps(cfg.buttons), json.dumps(cfg.images), json.dumps(cfg.pots))
+            (
+                _s(cfg.name),
+                _buttons_to_json(cfg.buttons),
+                json.dumps(cfg.images),
+                json.dumps(cfg.pots),
+            ),
         )
         return cur.lastrowid
 
@@ -52,7 +65,13 @@ def update(row_id: int, cfg: Configuration):
     with _connect() as conn:
         conn.execute(
             "UPDATE configurations SET name=?, buttons=?, images=?, pots=? WHERE id=?",
-            (_s(cfg.name), json.dumps(cfg.buttons), json.dumps(cfg.images), json.dumps(cfg.pots), row_id)
+            (
+                _s(cfg.name),
+                _buttons_to_json(cfg.buttons),
+                json.dumps(cfg.images),
+                json.dumps(cfg.pots),
+                row_id,
+            ),
         )
 
 
@@ -62,13 +81,17 @@ def delete(row_id: int):
 
 
 def replace_all(configs: list[Configuration]):
-    """Used when loading a JSON file – clears DB and re-inserts everything."""
     with _connect() as conn:
         conn.execute("DELETE FROM configurations")
         for cfg in configs:
             conn.execute(
                 "INSERT INTO configurations (name, buttons, images, pots) VALUES (?, ?, ?, ?)",
-                (_s(cfg.name), json.dumps(cfg.buttons), json.dumps(cfg.images), json.dumps(cfg.pots))
+                (
+                    _s(cfg.name),
+                    _buttons_to_json(cfg.buttons),
+                    json.dumps(cfg.images),
+                    json.dumps(cfg.pots),
+                ),
             )
 
 
