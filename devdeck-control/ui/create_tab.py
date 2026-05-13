@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton
+from PyQt6.QtWidgets import QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 
 class CreateTab(QWidget):
@@ -12,7 +12,7 @@ class CreateTab(QWidget):
         self.name_input = QLineEdit()
 
         btn_create = QPushButton("Create")
-        btn_create.clicked.connect(self.create)
+        btn_create.clicked.connect(self._on_create)
 
         layout.addWidget(QLabel("Configuration Name"))
         layout.addWidget(self.name_input)
@@ -21,7 +21,7 @@ class CreateTab(QWidget):
 
         self.setLayout(layout)
 
-    def create(self):
+    def _on_create(self):
         name = self.name_input.text().strip()
         if name:
             self.on_create_callback(name)

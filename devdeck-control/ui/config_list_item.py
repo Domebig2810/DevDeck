@@ -1,5 +1,4 @@
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton
-from PyQt6.QtCore import Qt
 
 
 class ConfigListItem(QWidget):
@@ -23,10 +22,10 @@ class ConfigListItem(QWidget):
 
         self.setLayout(layout)
 
-    def enterEvent(self, event):
+    def enterEvent(self, event):  # type: ignore[override]
         self.delete_btn.show()
 
-    def leaveEvent(self, event):
+    def leaveEvent(self, event):  # type: ignore[override]
         self.delete_btn.hide()
 
     def set_text(self, text):
