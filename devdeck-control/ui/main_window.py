@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QFileDialog, QListWidgetItem
 )
 
-from models.configuration import Configuration, ButtonConfig, PotConfig, NUM_BUTTONS, NUM_POTS
+from models.configuration import Configuration, ButtonConfig, EncoderConfig, NUM_BUTTONS, NUM_ENCODERS
 from ui.config_form import ConfigForm
 from ui.config_list_item import ConfigListItem
 import db.database as db
@@ -62,7 +62,7 @@ class MainWindow(QWidget):
         return Configuration(
             name=name,
             buttons=[ButtonConfig() for _ in range(NUM_BUTTONS)],
-            pots=[PotConfig() for _ in range(NUM_POTS)],
+            encoders=[EncoderConfig() for _ in range(NUM_ENCODERS)],
         )
 
     def _load_from_db(self):

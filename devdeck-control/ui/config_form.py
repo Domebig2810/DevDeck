@@ -8,9 +8,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 
-from models.configuration import Configuration, ButtonConfig, PotConfig, NUM_BUTTONS, NUM_POTS
+from models.configuration import Configuration, ButtonConfig, EncoderConfig, NUM_BUTTONS, NUM_ENCODERS
 from utils.image_utils import convert_to_bmp_128x64
-from utils.command_runner import run_command, scale_value
+from utils.command_runner import run_command
 
 # ──────────────────────────────────────────────────────────────────────────────
 # ButtonCard
@@ -67,7 +67,6 @@ class ButtonCard(QWidget):
 
         # Toggle
         toggle_row = QHBoxLayout()
-        toggle_row.setSpacing(0)
         self.radio_label = QRadioButton("Label")
         self.radio_image = QRadioButton("Bild")
         self.radio_label.setChecked(True)
@@ -203,23 +202,23 @@ class ButtonCard(QWidget):
                                 f"Button {self.index + 1} hat keinen Command.")
             return
         success, message = run_command(cmd)
-        self._flash_run_btn(success)
+        self._flash_btn(self.run_btn, success)
         if not success:
             QMessageBox.critical(self, "Command fehlgeschlagen",
                                  f"Button {self.index + 1}:\n\n{message}")
 
-    def _flash_run_btn(self, success: bool):
+    def _flash_btn(self, btn: QPushButton, success: bool):
         if success:
-            self.run_btn.setStyleSheet("background:#2d7a2d;color:white;border:none;")
-            self.run_btn.setText("✓ OK")
+            btn.setStyleSheet("background:#2d7a2d;color:white;border:none;")
+            btn.setText("✓ OK")
         else:
-            self.run_btn.setStyleSheet("background:#8b2020;color:white;border:none;")
-            self.run_btn.setText("✗ Fail")
-        QTimer.singleShot(2500, self._reset_run_btn)
+            btn.setStyleSheet("background:#8b2020;color:white;border:none;")
+            btn.setText("✗ Fail")
+        QTimer.singleShot(2500, lambda: self._reset_btn(btn))
 
-    def _reset_run_btn(self):
-        self.run_btn.setStyleSheet("")
-        self.run_btn.setText("▶ Run")
+    def _reset_btn(self, btn: QPushButton):
+        btn.setStyleSheet("")
+        btn.setText("▶ Run")
 
     def load(self, cfg: ButtonConfig):
         self._loading = True
@@ -231,7 +230,7 @@ class ButtonCard(QWidget):
         else:
             self.radio_label.setChecked(True)
         self._on_mode_changed()
-        self._reset_run_btn()
+        self._reset_btn(self.run_btn)
         self._loading = False
 
     def get_config(self) -> ButtonConfig:
@@ -249,15 +248,15 @@ class ButtonCard(QWidget):
         self.image_path_edit.clear()
         self.radio_label.setChecked(True)
         self._on_mode_changed()
-        self._reset_run_btn()
+        self._reset_btn(self.run_btn)
         self._loading = False
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# PotCard
+# EncoderCard
 # ──────────────────────────────────────────────────────────────────────────────
 
-class PotCard(QWidget):
+class EncoderCard(QWidget):
     changed = pyqtSignal()
 
     def __init__(self, index: int):
@@ -265,9 +264,9 @@ class PotCard(QWidget):
         self.index = index
         self._loading = False
 
-        self.setObjectName("PotCard")
+        self.setObjectName("EncoderCard")
         self.setStyleSheet("""
-            QWidget#PotCard {
+            QWidget#EncoderCard {
                 border: 1px solid palette(mid);
                 border-radius: 8px;
                 background: palette(base);
@@ -278,7 +277,7 @@ class PotCard(QWidget):
         outer.setContentsMargins(12, 10, 12, 10)
         outer.setSpacing(14)
 
-        # ---- LEFT: badge ----
+        # Badge
         badge = QLabel(str(index + 1))
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setFixedSize(22, 22)
@@ -287,82 +286,92 @@ class PotCard(QWidget):
             "color: palette(text); font-size: 11px; font-weight: bold;"
         )
 
-        # ---- RIGHT: fields ----
+        # Fields
         right = QVBoxLayout()
         right.setSpacing(6)
 
-        # Range row
-        range_row = QHBoxLayout()
-        range_row.setSpacing(8)
-        rl = QLabel("Range")
-        rl.setFixedWidth(56)
-        rl.setStyleSheet("font-size: 12px; color: palette(mid);")
-        self.range_min = QDoubleSpinBox()
-        self.range_min.setRange(-999999, 999999)
-        self.range_min.setValue(0.0)
-        self.range_min.setFixedHeight(28)
-        self.range_min.setToolTip("Minimum (bei Hardware-Wert 0)")
-        sep = QLabel("–")
-        sep.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.range_max = QDoubleSpinBox()
-        self.range_max.setRange(-999999, 999999)
-        self.range_max.setValue(100.0)
-        self.range_max.setFixedHeight(28)
-        self.range_max.setToolTip("Maximum (bei Hardware-Wert 1023)")
-        self.range_min.valueChanged.connect(self._emit_changed)
-        self.range_max.valueChanged.connect(self._emit_changed)
-        range_row.addWidget(rl)
-        range_row.addWidget(self.range_min)
-        range_row.addWidget(sep)
-        range_row.addWidget(self.range_max)
+        # Step row
+        step_row = QHBoxLayout()
+        step_row.setSpacing(8)
+        sl = QLabel("Step")
+        sl.setFixedWidth(72)
+        sl.setStyleSheet("font-size: 12px; color: palette(mid);")
+        self.step_spin = QDoubleSpinBox()
+        self.step_spin.setRange(0.01, 999999)
+        self.step_spin.setValue(1.0)
+        self.step_spin.setFixedHeight(28)
+        self.step_spin.setToolTip("Schrittgröße pro Encoder-Tick; {step} im Command")
+        self.step_spin.valueChanged.connect(self._emit_changed)
+        step_row.addWidget(sl)
+        step_row.addWidget(self.step_spin)
+        step_row.addStretch()
 
-        # Value command row
-        vcmd_row = QHBoxLayout()
-        vcmd_row.setSpacing(8)
-        vl = QLabel("Drehen")
-        vl.setFixedWidth(56)
-        vl.setStyleSheet("font-size: 12px; color: palette(mid);")
-        self.cmd_edit = QLineEdit()
-        self.cmd_edit.setPlaceholderText(
-            "z.B.  osascript -e 'set volume output volume {value}'"
+        # Clockwise row
+        cw_row = QHBoxLayout()
+        cw_row.setSpacing(8)
+        cwl = QLabel("↻ Rechts")
+        cwl.setFixedWidth(72)
+        cwl.setStyleSheet("font-size: 12px; color: palette(mid);")
+        self.cw_edit = QLineEdit()
+        self.cw_edit.setPlaceholderText(
+            "z.B.  osascript -e 'set volume output volume "
+            "(output volume of (get volume settings) + {step})'"
         )
-        self.cmd_edit.setFixedHeight(28)
-        self.cmd_edit.setToolTip(
-            "{value} wird durch den skalierten Wert ersetzt (range_min … range_max)"
-        )
-        self.cmd_edit.textChanged.connect(self._emit_changed)
-        self.run_val_btn = QPushButton("▶ Run")
-        self.run_val_btn.setFixedWidth(64)
-        self.run_val_btn.setFixedHeight(28)
-        self.run_val_btn.setToolTip("Mit Mittelwert testen")
-        self.run_val_btn.clicked.connect(self._test_value_command)
-        vcmd_row.addWidget(vl)
-        vcmd_row.addWidget(self.cmd_edit)
-        vcmd_row.addWidget(self.run_val_btn)
+        self.cw_edit.setFixedHeight(28)
+        self.cw_edit.textChanged.connect(self._emit_changed)
+        self.cw_run_btn = QPushButton("▶ Run")
+        self.cw_run_btn.setFixedWidth(64)
+        self.cw_run_btn.setFixedHeight(28)
+        self.cw_run_btn.clicked.connect(self._test_cw)
+        cw_row.addWidget(cwl)
+        cw_row.addWidget(self.cw_edit)
+        cw_row.addWidget(self.cw_run_btn)
 
-        # Click command row
-        ccmd_row = QHBoxLayout()
-        ccmd_row.setSpacing(8)
-        ccl = QLabel("Klick")
-        ccl.setFixedWidth(56)
-        ccl.setStyleSheet("font-size: 12px; color: palette(mid);")
-        self.click_cmd_edit = QLineEdit()
-        self.click_cmd_edit.setPlaceholderText(
+        # Counter-clockwise row
+        ccw_row = QHBoxLayout()
+        ccw_row.setSpacing(8)
+        ccwl = QLabel("↺ Links")
+        ccwl.setFixedWidth(72)
+        ccwl.setStyleSheet("font-size: 12px; color: palette(mid);")
+        self.ccw_edit = QLineEdit()
+        self.ccw_edit.setPlaceholderText(
+            "z.B.  osascript -e 'set volume output volume "
+            "(output volume of (get volume settings) - {step})'"
+        )
+        self.ccw_edit.setFixedHeight(28)
+        self.ccw_edit.textChanged.connect(self._emit_changed)
+        self.ccw_run_btn = QPushButton("▶ Run")
+        self.ccw_run_btn.setFixedWidth(64)
+        self.ccw_run_btn.setFixedHeight(28)
+        self.ccw_run_btn.clicked.connect(self._test_ccw)
+        ccw_row.addWidget(ccwl)
+        ccw_row.addWidget(self.ccw_edit)
+        ccw_row.addWidget(self.ccw_run_btn)
+
+        # Click row
+        click_row = QHBoxLayout()
+        click_row.setSpacing(8)
+        clickl = QLabel("⏎ Klick")
+        clickl.setFixedWidth(72)
+        clickl.setStyleSheet("font-size: 12px; color: palette(mid);")
+        self.click_edit = QLineEdit()
+        self.click_edit.setPlaceholderText(
             "z.B.  osascript -e 'tell app \"Music\" to playpause'"
         )
-        self.click_cmd_edit.setFixedHeight(28)
-        self.click_cmd_edit.textChanged.connect(self._emit_changed)
-        self.run_click_btn = QPushButton("▶ Run")
-        self.run_click_btn.setFixedWidth(64)
-        self.run_click_btn.setFixedHeight(28)
-        self.run_click_btn.clicked.connect(self._test_click_command)
-        ccmd_row.addWidget(ccl)
-        ccmd_row.addWidget(self.click_cmd_edit)
-        ccmd_row.addWidget(self.run_click_btn)
+        self.click_edit.setFixedHeight(28)
+        self.click_edit.textChanged.connect(self._emit_changed)
+        self.click_run_btn = QPushButton("▶ Run")
+        self.click_run_btn.setFixedWidth(64)
+        self.click_run_btn.setFixedHeight(28)
+        self.click_run_btn.clicked.connect(self._test_click)
+        click_row.addWidget(clickl)
+        click_row.addWidget(self.click_edit)
+        click_row.addWidget(self.click_run_btn)
 
-        right.addLayout(range_row)
-        right.addLayout(vcmd_row)
-        right.addLayout(ccmd_row)
+        right.addLayout(step_row)
+        right.addLayout(cw_row)
+        right.addLayout(ccw_row)
+        right.addLayout(click_row)
 
         outer.addWidget(badge, alignment=Qt.AlignmentFlag.AlignTop)
         outer.addLayout(right, 1)
@@ -372,31 +381,27 @@ class PotCard(QWidget):
         if not self._loading:
             self.changed.emit()
 
-    def _test_value_command(self):
-        cmd = self.cmd_edit.text().strip()
-        if not cmd:
-            QMessageBox.warning(self, "Kein Command",
-                                f"Pot {self.index + 1} hat keinen Dreh-Command.")
-            return
-        # Test with mid-point (hardware value 512)
-        mid = scale_value(512, self.range_min.value(), self.range_max.value())
-        success, message = run_command(cmd, value=mid)
-        self._flash_btn(self.run_val_btn, success)
-        if not success:
-            QMessageBox.critical(self, "Command fehlgeschlagen",
-                                 f"Pot {self.index + 1} (Drehen):\n\n{message}")
+    def _test_cw(self):
+        self._test(self.cw_edit, self.cw_run_btn, "↻ Rechts")
 
-    def _test_click_command(self):
-        cmd = self.click_cmd_edit.text().strip()
+    def _test_ccw(self):
+        self._test(self.ccw_edit, self.ccw_run_btn, "↺ Links")
+
+    def _test_click(self):
+        self._test(self.click_edit, self.click_run_btn, "Klick", use_step=False)
+
+    def _test(self, edit: QLineEdit, btn: QPushButton, label: str, use_step: bool = True):
+        cmd = edit.text().strip()
         if not cmd:
             QMessageBox.warning(self, "Kein Command",
-                                f"Pot {self.index + 1} hat keinen Klick-Command.")
+                                f"Encoder {self.index + 1} ({label}) hat keinen Command.")
             return
-        success, message = run_command(cmd)
-        self._flash_btn(self.run_click_btn, success)
+        step = self.step_spin.value() if use_step else None
+        success, message = run_command(cmd, step=step)
+        self._flash_btn(btn, success)
         if not success:
             QMessageBox.critical(self, "Command fehlgeschlagen",
-                                 f"Pot {self.index + 1} (Klick):\n\n{message}")
+                                 f"Encoder {self.index + 1} ({label}):\n\n{message}")
 
     def _flash_btn(self, btn: QPushButton, success: bool):
         if success:
@@ -411,32 +416,32 @@ class PotCard(QWidget):
         btn.setStyleSheet("")
         btn.setText("▶ Run")
 
-    def load(self, cfg: PotConfig):
+    def load(self, cfg: EncoderConfig):
         self._loading = True
-        self.range_min.setValue(cfg.range_min)
-        self.range_max.setValue(cfg.range_max)
-        self.cmd_edit.setText(cfg.command)
-        self.click_cmd_edit.setText(cfg.click_command)
-        self._reset_btn(self.run_val_btn)
-        self._reset_btn(self.run_click_btn)
+        self.step_spin.setValue(cfg.step)
+        self.cw_edit.setText(cfg.clockwise_command)
+        self.ccw_edit.setText(cfg.counter_command)
+        self.click_edit.setText(cfg.click_command)
+        for btn in (self.cw_run_btn, self.ccw_run_btn, self.click_run_btn):
+            self._reset_btn(btn)
         self._loading = False
 
-    def get_config(self) -> PotConfig:
-        return PotConfig(
-            range_min=self.range_min.value(),
-            range_max=self.range_max.value(),
-            command=self.cmd_edit.text(),
-            click_command=self.click_cmd_edit.text(),
+    def get_config(self) -> EncoderConfig:
+        return EncoderConfig(
+            step=self.step_spin.value(),
+            clockwise_command=self.cw_edit.text(),
+            counter_command=self.ccw_edit.text(),
+            click_command=self.click_edit.text(),
         )
 
     def clear(self):
         self._loading = True
-        self.range_min.setValue(0.0)
-        self.range_max.setValue(100.0)
-        self.cmd_edit.clear()
-        self.click_cmd_edit.clear()
-        self._reset_btn(self.run_val_btn)
-        self._reset_btn(self.run_click_btn)
+        self.step_spin.setValue(1.0)
+        self.cw_edit.clear()
+        self.ccw_edit.clear()
+        self.click_edit.clear()
+        for btn in (self.cw_run_btn, self.ccw_run_btn, self.click_run_btn):
+            self._reset_btn(btn)
         self._loading = False
 
 
@@ -487,25 +492,25 @@ class ConfigForm(QWidget):
         btn_scroll.setWidget(btn_content)
         tabs.addTab(btn_scroll, "Buttons")
 
-        # ---- Tab 2: Potentiometer ----
-        pot_scroll = QScrollArea()
-        pot_scroll.setWidgetResizable(True)
-        pot_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        pot_content = QWidget()
-        pot_layout = QVBoxLayout(pot_content)
-        pot_layout.setSpacing(8)
-        pot_layout.setContentsMargins(4, 8, 4, 4)
+        # ---- Tab 2: Encoders ----
+        enc_scroll = QScrollArea()
+        enc_scroll.setWidgetResizable(True)
+        enc_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        enc_content = QWidget()
+        enc_layout = QVBoxLayout(enc_content)
+        enc_layout.setSpacing(8)
+        enc_layout.setContentsMargins(4, 8, 4, 4)
 
-        self.pot_cards: list[PotCard] = []
-        for i in range(NUM_POTS):
-            card = PotCard(i)
+        self.encoder_cards: list[EncoderCard] = []
+        for i in range(NUM_ENCODERS):
+            card = EncoderCard(i)
             card.changed.connect(self._on_changed)
-            self.pot_cards.append(card)
-            pot_layout.addWidget(card)
-        pot_layout.addStretch()
+            self.encoder_cards.append(card)
+            enc_layout.addWidget(card)
+        enc_layout.addStretch()
 
-        pot_scroll.setWidget(pot_content)
-        tabs.addTab(pot_scroll, "Potentiometer")
+        enc_scroll.setWidget(enc_content)
+        tabs.addTab(enc_scroll, "Encoder")
 
         main_layout.addLayout(top_bar)
         main_layout.addWidget(tabs)
@@ -521,8 +526,8 @@ class ConfigForm(QWidget):
         self.name_edit.setText(config.name)
         for i in range(NUM_BUTTONS):
             self.button_cards[i].load(config.buttons[i])
-        for i in range(NUM_POTS):
-            self.pot_cards[i].load(config.pots[i])
+        for i in range(NUM_ENCODERS):
+            self.encoder_cards[i].load(config.encoders[i])
         self._loading = False
 
     def save(self):
@@ -531,7 +536,7 @@ class ConfigForm(QWidget):
         cfg = self.current_config
         cfg.name = self.name_edit.text()
         cfg.buttons = [card.get_config() for card in self.button_cards]
-        cfg.pots = [card.get_config() for card in self.pot_cards]
+        cfg.encoders = [card.get_config() for card in self.encoder_cards]
 
     def clear(self):
         self._loading = True
@@ -539,7 +544,7 @@ class ConfigForm(QWidget):
         self.name_edit.clear()
         for card in self.button_cards:
             card.clear()
-        for card in self.pot_cards:
+        for card in self.encoder_cards:
             card.clear()
         self._loading = False
 

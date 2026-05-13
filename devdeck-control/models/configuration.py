@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import List
 
 NUM_BUTTONS = 6
-NUM_POTS = 3
+NUM_ENCODERS = 3
 
 
 @dataclass
@@ -14,28 +14,26 @@ class ButtonConfig:
 
 
 @dataclass
-class PotConfig:
-    # Rotary value
-    range_min: float = 0.0
-    range_max: float = 100.0
-    command: str = ""        # shell command; {value} replaced with scaled float at runtime
-
-    # Click
-    click_command: str = ""  # executed once on pot press
+class EncoderConfig:
+    step: float = 1.0
+    clockwise_command: str = ""  # {step} replaced at runtime
+    counter_command: str = ""  # {step} replaced at runtime
+    click_command: str = ""
 
 
 @dataclass
 class Configuration:
     name: str
     buttons: List[ButtonConfig]
-    pots: List[PotConfig]
+    encoders: List[EncoderConfig]
 
     def __post_init__(self):
         migrated_buttons = []
         for b in self.buttons:
             if isinstance(b, dict):
-                known = {k: v for k, v in b.items()
-                         if k in ButtonConfig.__dataclass_fields__}
+                known = {
+                    k: v for k, v in b.items() if k in ButtonConfig.__dataclass_fields__
+                }
                 migrated_buttons.append(ButtonConfig(**known))
             elif isinstance(b, ButtonConfig):
                 migrated_buttons.append(b)
@@ -43,14 +41,17 @@ class Configuration:
                 migrated_buttons.append(ButtonConfig(label=str(b)))
         self.buttons = migrated_buttons
 
-        migrated_pots = []
-        for p in self.pots:
-            if isinstance(p, dict):
-                known = {k: v for k, v in p.items()
-                         if k in PotConfig.__dataclass_fields__}
-                migrated_pots.append(PotConfig(**known))
-            elif isinstance(p, PotConfig):
-                migrated_pots.append(p)
+        migrated_encoders = []
+        for e in self.encoders:
+            if isinstance(e, dict):
+                known = {
+                    k: v
+                    for k, v in e.items()
+                    if k in EncoderConfig.__dataclass_fields__
+                }
+                migrated_encoders.append(EncoderConfig(**known))
+            elif isinstance(e, EncoderConfig):
+                migrated_encoders.append(e)
             else:
-                migrated_pots.append(PotConfig())
-        self.pots = migrated_pots
+                migrated_encoders.append(EncoderConfig())
+        self.encoders = migrated_encoders

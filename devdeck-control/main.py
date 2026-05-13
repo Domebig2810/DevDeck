@@ -11,12 +11,14 @@ def main():
     qdarktheme.setup_theme("auto")
     window = MainWindow()
     window.show()
+    window.raise_()
+    window.activateWindow()
     sys.exit(app.exec())
 
 
 if __name__ == "__main__":
     main()
 
-# TODO:to bundle:
+# TODO: to bundle:
 # pip install pyinstaller
 # pyinstaller --name "DevDeck" --windowed main.py
