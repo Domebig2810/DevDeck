@@ -1,0 +1,272 @@
+<script setup lang="ts">
+import { computed, watch, ref } from "vue";
+import { useConfigs } from "@/composables/useConfigs";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { SidebarTrigger } from "@/components/ui/sidebar";
+import {
+  RotateCcw,
+  RotateCw,
+  MousePointerClick,
+  Square,
+} from "lucide-vue-next";
+
+const { selected, selectedId, updateConfig } = useConfigs();
+
+const local = ref<any>(null);
+
+watch(
+  selected,
+  (val) => {
+    if (val) local.value = JSON.parse(JSON.stringify(val.config));
+  },
+  { immediate: true, deep: true },
+);
+
+const activeEl = ref<{ type: "button" | "encoder"; index: number } | null>(
+  null,
+);
+
+const activeButton = computed(() => {
+  if (activeEl.value?.type === "button" && local.value)
+    return local.value.buttons[activeEl.value.index];
+  return null;
+});
+
+const activeEncoder = computed(() => {
+  if (activeEl.value?.type === "encoder" && local.value)
+    return local.value.encoders[activeEl.value.index];
+  return null;
+});
+
+function select(type: "button" | "encoder", index: number) {
+  activeEl.value = { type, index };
+}
+
+function isActive(type: "button" | "encoder", index: number) {
+  return activeEl.value?.type === type && activeEl.value?.index === index;
+}
+
+async function save() {
+  if (!selectedId.value || !local.value) return;
+  await updateConfig(selectedId.value, local.value);
+}
+
+const editingName = ref(false);
+</script>
+
+<template>
+  <div class="flex flex-col h-full">
+    <!-- Header -->
+    <div class="flex items-center gap-2 px-4 py-3 border-b">
+      <SidebarTrigger />
+      <template v-if="local">
+        <div class="w-px h-5 bg-border mx-1" />
+        <input
+          v-if="editingName"
+          v-model="local.name"
+          class="text-lg font-semibold bg-transparent border-b border-primary outline-none"
+          @blur="
+            editingName = false;
+            save();
+          "
+          @keydown.enter="
+            editingName = false;
+            save();
+          "
+          autofocus
+        />
+        <h2
+          v-else
+          class="text-lg font-semibold cursor-pointer hover:text-primary transition-colors"
+          @click="editingName = true"
+        >
+          {{ local.name }}
+        </h2>
+      </template>
+    </div>
+
+    <!-- Kein Config -->
+    <div
+      v-if="!local"
+      class="flex-1 flex items-center justify-center text-muted-foreground text-sm"
+    >
+      Keine Konfiguration ausgewählt
+    </div>
+
+    <!-- Main -->
+    <div v-else class="flex flex-1 overflow-hidden">
+      <!-- Hardware-Visualisierung -->
+      <div class="flex flex-col items-center justify-center gap-8 flex-1 p-8">
+        <div class="grid grid-cols-3 gap-3">
+          <button
+            v-for="(btn, i) in local.buttons"
+            :key="i"
+            @click="select('button', i)"
+            :class="[
+              'w-24 h-24 rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all text-xs font-medium',
+              isActive('button', i)
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-border bg-card hover:border-primary/50 hover:bg-accent text-muted-foreground',
+            ]"
+          >
+            <Square class="size-5 opacity-40" />
+            <span class="truncate w-full text-center px-1">
+              {{ btn.label || `Btn ${i + 1}` }}
+            </span>
+          </button>
+        </div>
+
+        <div class="flex gap-6">
+          <button
+            v-for="(enc, i) in local.encoders"
+            :key="i"
+            @click="select('encoder', i)"
+            :class="[
+              'w-20 h-20 rounded-full border-2 flex flex-col items-center justify-center gap-0.5 transition-all text-xs font-medium',
+              isActive('encoder', i)
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-border bg-card hover:border-primary/50 hover:bg-accent text-muted-foreground',
+            ]"
+          >
+            <RotateCw class="size-4 opacity-40" />
+            <span>Enc {{ i + 1 }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Detail-Panel -->
+      <div class="w-80 border-l flex flex-col overflow-y-auto">
+        <div v-if="activeButton" class="p-5 flex flex-col gap-5">
+          <h3
+            class="font-semibold text-sm text-muted-foreground uppercase tracking-wide"
+          >
+            Button {{ activeEl!.index + 1 }}
+          </h3>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-medium">Label</label>
+            <Input
+              v-model="activeButton.label"
+              placeholder="Button-Beschriftung"
+              @change="save"
+            />
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-medium">Befehl</label>
+            <Input
+              v-model="activeButton.command"
+              placeholder="z.B. open -a Safari"
+              @change="save"
+            />
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-medium">Darstellung</label>
+            <div class="flex gap-2">
+              <Button
+                size="sm"
+                :variant="
+                  activeButton.display_mode === 'label' ? 'default' : 'outline'
+                "
+                @click="
+                  activeButton.display_mode = 'label';
+                  save();
+                "
+              >
+                Label
+              </Button>
+              <Button
+                size="sm"
+                :variant="
+                  activeButton.display_mode === 'image' ? 'default' : 'outline'
+                "
+                @click="
+                  activeButton.display_mode = 'image';
+                  save();
+                "
+              >
+                Bild
+              </Button>
+            </div>
+          </div>
+
+          <div
+            v-if="activeButton.display_mode === 'image'"
+            class="flex flex-col gap-1.5"
+          >
+            <label class="text-xs font-medium">Bildpfad</label>
+            <Input
+              v-model="activeButton.image"
+              placeholder="/pfad/zum/bild.png"
+              @change="save"
+            />
+          </div>
+        </div>
+
+        <div v-else-if="activeEncoder" class="p-5 flex flex-col gap-5">
+          <h3
+            class="font-semibold text-sm text-muted-foreground uppercase tracking-wide"
+          >
+            Encoder {{ activeEl!.index + 1 }}
+          </h3>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-medium flex items-center gap-1.5">
+              <RotateCw class="size-3" /> Rechts-Befehl
+            </label>
+            <Input
+              v-model="activeEncoder.clockwise_command"
+              placeholder="Befehl (nutze {step})"
+              @change="save"
+            />
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-medium flex items-center gap-1.5">
+              <RotateCcw class="size-3" /> Links-Befehl
+            </label>
+            <Input
+              v-model="activeEncoder.counter_command"
+              placeholder="Befehl (nutze {step})"
+              @change="save"
+            />
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-medium flex items-center gap-1.5">
+              <MousePointerClick class="size-3" /> Klick-Befehl
+            </label>
+            <Input
+              v-model="activeEncoder.click_command"
+              placeholder="Befehl bei Klick"
+              @change="save"
+            />
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-medium">Schrittweite</label>
+            <Input
+              type="number"
+              :model-value="activeEncoder.step"
+              @update:model-value="
+                activeEncoder.step = parseFloat($event as string) || 1
+              "
+              @change="save"
+              step="0.1"
+              min="0.1"
+            />
+          </div>
+        </div>
+
+        <div
+          v-else
+          class="flex-1 flex items-center justify-center text-muted-foreground text-sm p-8 text-center"
+        >
+          Button oder Encoder auswählen um zu bearbeiten
+        </div>
+      </div>
+    </div>
+  </div>
+</template>

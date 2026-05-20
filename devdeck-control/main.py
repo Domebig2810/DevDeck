@@ -44,7 +44,7 @@ def main():
         url = os.path.abspath("frontend/dist/index.html")
 
     webview.create_window(
-        title="DevDeck",
+        title="DevDeck Control",
         url=url,
         js_api=api,
         width=1200,
