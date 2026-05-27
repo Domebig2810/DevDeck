@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 from dataclasses import asdict
 from typing import Optional
@@ -66,44 +67,67 @@ class Api:
 
     def import_json(self, json_str: str):
         data = json.loads(json_str)
-        configs = [Configuration(**c) for c in data]
-        db.replace_all(configs)
+        existing = db.load_all()
+        existing_names = {cfg.name for _, cfg in existing}
+
+        for c in data:
+            cfg = Configuration(**c)
+            # Klammern am Ende entfernen: "Amogus (1) (2)" -> "Amogus"
+            base_name = re.sub(r"(\s*\(\d+\))+$", "", cfg.name).strip()
+
+            if base_name not in existing_names:
+                cfg.name = base_name
+            else:
+                counter = 1
+                while f"{base_name} ({counter})" in existing_names:
+                    counter += 1
+                cfg.name = f"{base_name} ({counter})"
+
+            existing_names.add(cfg.name)
+            db.insert(cfg)
+
         return self.load_all()
 
-    def export_json(self):
+    def export_json(self, selected_id: int):
         from pathlib import Path
+
         rows = db.load_all()
-        data = json.dumps([asdict(cfg) for _, cfg in rows], indent=4)
-    
-        # Name aus der ersten Config, fallback auf "devdeck-configs"
-        name = rows[0][1].name.strip() if rows else "devdeck-configs"
-        # Ungültige Zeichen für Dateinamen entfernen
-        safe_name = "".join(c for c in name if c not in r'\/:*?"<>|').strip()
-        if not safe_name:
-            safe_name = "devdeck-configs"
-    
+
+        selected = next((cfg for rid, cfg in rows if rid == selected_id), None)
+        if not selected:
+            return None
+
+        data = json.dumps([asdict(selected)], indent=4)
+
+        name = selected.name.strip()
+        safe_name = (
+            "".join(c for c in name if c not in r'\/:*?"<>|').strip()
+            or "devdeck-configs"
+        )
+
         downloads = Path.home() / "Downloads"
         downloads.mkdir(exist_ok=True)
-    
+
         out_path = downloads / f"{safe_name}.json"
         counter = 1
         while out_path.exists():
             out_path = downloads / f"{safe_name}-{counter:02d}.json"
             counter += 1
-    
+
         out_path.write_text(data, encoding="utf-8")
         return str(out_path)
 
     def reveal_in_finder(self, path: str):
         import subprocess
         import sys
+
         if sys.platform == "darwin":
             subprocess.Popen(["open", "-R", path])
         elif sys.platform == "win32":
             subprocess.Popen(["explorer", "/select,", path])
         else:
             subprocess.Popen(["xdg-open", str(Path(path).parent)])
-            
+
     # ── Commands ──────────────────────────────────────────────────────────────
 
     def run_command(self, command: str, step: Optional[float] = None):

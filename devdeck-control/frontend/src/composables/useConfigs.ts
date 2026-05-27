@@ -35,13 +35,19 @@ async function deleteConfig(id: number) {
 }
 
 async function exportJson() {
-  await window.pywebview!.api.export_json();
+  if (!selectedId.value) return;
+  return await window.pywebview!.api.export_json(selectedId.value);
 }
 
 async function importJson(file: File) {
+  const previousIds = new Set(configs.value.map((c) => c.id));
   const text = await file.text();
-  configs.value = await window.pywebview!.api.import_json(text);
-  selectedId.value = configs.value[0]?.id ?? null;
+  const result = await window.pywebview!.api.import_json(text);
+  if (!result) return;
+  configs.value = result;
+  // Springe zur ersten neu importierten Config
+  const newConfig = configs.value.find((c) => !previousIds.has(c.id));
+  if (newConfig) selectedId.value = newConfig.id;
 }
 
 export function useConfigs() {

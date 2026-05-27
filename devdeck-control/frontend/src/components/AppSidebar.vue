@@ -34,8 +34,9 @@ const pendingDeleteId = ref<number | null>(null);
 const exportedPath = ref<string | null>(null);
 
 async function exportJson() {
-  const path = await window.pywebview!.api.export_json();
-  exportedPath.value = path;
+  if (!selectedId.value) return;
+  const path = await window.pywebview!.api.export_json(selectedId.value);
+  if (path) exportedPath.value = path;
 }
 
 function getFileName(path: string) {
@@ -58,7 +59,15 @@ function onImportClick() {
 
 async function onFileSelected(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0];
-  if (file) await importJson(file);
+  if (!file) {
+    console.log("no file selected");
+    return;
+  }
+  console.log("file:", file.name);
+  const text = await file.text();
+  console.log("text:", text);
+  const result = await importJson(file);
+  console.log("result:", result);
 }
 
 function requestDelete(id: number) {
