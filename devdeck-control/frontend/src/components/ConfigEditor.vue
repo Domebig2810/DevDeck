@@ -97,41 +97,55 @@ const editingName = ref(false);
     <!-- Main -->
     <div v-else class="flex flex-1 overflow-hidden">
       <!-- Hardware-Visualisierung -->
-      <div class="flex flex-col items-center justify-center gap-8 flex-1 p-8">
+      <div class="flex items-center justify-center flex-1 p-8">
         <div class="grid grid-cols-3 gap-3">
-          <button
-            v-for="(btn, i) in local.buttons"
-            :key="i"
-            @click="select('button', i)"
-            :class="[
-              'w-24 h-24 rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all text-xs font-medium',
-              isActive('button', i)
-                ? 'border-primary bg-primary/10 text-primary'
-                : 'border-border bg-card hover:border-primary/50 hover:bg-accent text-muted-foreground',
-            ]"
-          >
-            <Square class="size-5 opacity-40" />
-            <span class="truncate w-full text-center px-1">
-              {{ btn.label || `Btn ${i + 1}` }}
-            </span>
-          </button>
-        </div>
-
-        <div class="flex gap-6">
-          <button
-            v-for="(enc, i) in local.encoders"
-            :key="i"
-            @click="select('encoder', i)"
-            :class="[
-              'w-20 h-20 rounded-full border-2 flex flex-col items-center justify-center gap-0.5 transition-all text-xs font-medium',
-              isActive('encoder', i)
-                ? 'border-primary bg-primary/10 text-primary'
-                : 'border-border bg-card hover:border-primary/50 hover:bg-accent text-muted-foreground',
-            ]"
-          >
-            <RotateCw class="size-4 opacity-40" />
-            <span>Enc {{ i + 1 }}</span>
-          </button>
+          <template v-for="i in 3" :key="i">
+            <!-- Encoder (linke Spalte) -->
+            <button
+              @click="select('encoder', i - 1)"
+              :class="[
+                'w-24 h-24 rounded-full border-2 flex flex-col items-center justify-center gap-0.5 transition-all text-xs font-medium',
+                isActive('encoder', i - 1)
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border bg-card hover:border-primary/50 hover:bg-accent text-muted-foreground',
+              ]"
+            >
+              <RotateCw class="size-4 opacity-40" />
+              <span>Enc {{ i }}</span>
+            </button>
+      
+            <!-- Button 1 (mittlere Spalte) -->
+            <button
+              @click="select('button', (i - 1) * 2)"
+              :class="[
+                'w-24 h-24 rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all text-xs font-medium',
+                isActive('button', (i - 1) * 2)
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border bg-card hover:border-primary/50 hover:bg-accent text-muted-foreground',
+              ]"
+            >
+              <Square class="size-5 opacity-40" />
+              <span class="truncate w-full text-center px-1">
+                {{ local.buttons[(i - 1) * 2].label || `Btn ${(i - 1) * 2 + 1}` }}
+              </span>
+            </button>
+      
+            <!-- Button 2 (rechte Spalte) -->
+            <button
+              @click="select('button', (i - 1) * 2 + 1)"
+              :class="[
+                'w-24 h-24 rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all text-xs font-medium',
+                isActive('button', (i - 1) * 2 + 1)
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border bg-card hover:border-primary/50 hover:bg-accent text-muted-foreground',
+              ]"
+            >
+              <Square class="size-5 opacity-40" />
+              <span class="truncate w-full text-center px-1">
+                {{ local.buttons[(i - 1) * 2 + 1].label || `Btn ${(i - 1) * 2 + 2}` }}
+              </span>
+            </button>
+          </template>
         </div>
       </div>
 
