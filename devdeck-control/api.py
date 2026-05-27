@@ -1,10 +1,14 @@
+import base64
 import json
+import os
 import re
 import sys
 from dataclasses import asdict
+from io import BytesIO
 from typing import Optional
 
 import webview
+from PIL import Image
 
 import db.database as db
 from models.configuration import (
@@ -136,10 +140,19 @@ class Api:
 
     # ── Images ────────────────────────────────────────────────────────────────
 
-    def convert_image(self, input_path: str, button_index: int):
-        import os
-
+    def convert_image(self, base64_data: str, button_index: int):
         os.makedirs("images", exist_ok=True)
         out = f"images/btn_{button_index}.bmp"
-        convert_to_bmp_128x64(input_path, out)
-        return {"path": out}
+
+        img_bytes = base64.b64decode(base64_data)
+        img = Image.open(BytesIO(img_bytes))
+        img = img.convert("L")
+        img = img.resize((128, 64), Image.Resampling.LANCZOS)
+        img = img.point(lambda x: 255 if x > 128 else 0, mode="1")
+        img.save(out, format="BMP")
+
+        # Base64 zurückgeben für die Anzeige im Frontend
+        with open(out, "rb") as f:
+            encoded = base64.b64encode(f.read()).decode("utf-8")
+
+        return {"path": out, "base64": f"data:image/bmp;base64,{encoded}"}

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, watch, ref } from "vue";
 import { useConfigs } from "@/composables/useConfigs";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
   RotateCcw,
@@ -50,6 +50,24 @@ function isActive(type: "button" | "encoder", index: number) {
 async function save() {
   if (!selectedId.value || !local.value) return;
   await updateConfig(selectedId.value, local.value);
+}
+
+async function handleImageChange(e: Event, buttonIndex: number) {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+
+  const base64 = await new Promise<string>((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).split(",")[1]);
+    reader.readAsDataURL(file);
+  });
+
+  const result = await window.pywebview!.api.convert_image(base64, buttonIndex);
+  if (result?.path && local.value) {
+    local.value.buttons[buttonIndex].image = result.path;
+    local.value.buttons[buttonIndex].image_preview = result.base64;
+    await save();
+  }
 }
 
 const editingName = ref(false);
@@ -113,37 +131,71 @@ const editingName = ref(false);
               <RotateCw class="size-4 opacity-40" />
               <span>Enc {{ i }}</span>
             </button>
-      
+
             <!-- Button 1 (mittlere Spalte) -->
             <button
               @click="select('button', (i - 1) * 2)"
               :class="[
-                'w-24 h-24 rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all text-xs font-medium',
+                'w-24 h-24 rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all text-xs font-medium overflow-hidden relative',
                 isActive('button', (i - 1) * 2)
                   ? 'border-primary bg-primary/10 text-primary'
                   : 'border-border bg-card hover:border-primary/50 hover:bg-accent text-muted-foreground',
               ]"
             >
-              <Square class="size-5 opacity-40" />
-              <span class="truncate w-full text-center px-1">
-                {{ local.buttons[(i - 1) * 2].label || `Btn ${(i - 1) * 2 + 1}` }}
-              </span>
+              <template
+                v-if="
+                  local.buttons[(i - 1) * 2].display_mode === 'image' &&
+                  local.buttons[(i - 1) * 2].image
+                "
+              >
+                <img
+                  :src="
+                    local.buttons[(i - 1) * 2].image_preview ||
+                    local.buttons[(i - 1) * 2].image
+                  "
+                  class="w-full h-full object-cover absolute inset-0"
+                />
+              </template>
+              <template v-else>
+                <Square class="size-5 opacity-40" />
+                <span class="truncate w-full text-center px-1">
+                  {{
+                    local.buttons[(i - 1) * 2].label || `Btn ${(i - 1) * 2 + 1}`
+                  }}
+                </span>
+              </template>
             </button>
-      
+
             <!-- Button 2 (rechte Spalte) -->
             <button
               @click="select('button', (i - 1) * 2 + 1)"
               :class="[
-                'w-24 h-24 rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all text-xs font-medium',
+                'w-24 h-24 rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all text-xs font-medium overflow-hidden relative',
                 isActive('button', (i - 1) * 2 + 1)
                   ? 'border-primary bg-primary/10 text-primary'
                   : 'border-border bg-card hover:border-primary/50 hover:bg-accent text-muted-foreground',
               ]"
             >
-              <Square class="size-5 opacity-40" />
-              <span class="truncate w-full text-center px-1">
-                {{ local.buttons[(i - 1) * 2 + 1].label || `Btn ${(i - 1) * 2 + 2}` }}
-              </span>
+              <template
+                v-if="
+                  local.buttons[(i - 1) * 2 + 1].display_mode === 'image' &&
+                  local.buttons[(i - 1) * 2 + 1].image
+                "
+              >
+                <img
+                  :src="`file://${local.buttons[(i - 1) * 2 + 1].image}`"
+                  class="w-full h-full object-cover absolute inset-0"
+                />
+              </template>
+              <template v-else>
+                <Square class="size-5 opacity-40" />
+                <span class="truncate w-full text-center px-1">
+                  {{
+                    local.buttons[(i - 1) * 2 + 1].label ||
+                    `Btn ${(i - 1) * 2 + 2}`
+                  }}
+                </span>
+              </template>
             </button>
           </template>
         </div>
@@ -210,12 +262,19 @@ const editingName = ref(false);
             v-if="activeButton.display_mode === 'image'"
             class="flex flex-col gap-1.5"
           >
-            <label class="text-xs font-medium">Bildpfad</label>
-            <Input
-              v-model="activeButton.image"
-              placeholder="/pfad/zum/bild.png"
-              @change="save"
+            <label class="text-xs font-medium">Bild</label>
+            <input
+              type="file"
+              accept="image/*"
+              class="text-xs text-muted-foreground file:mr-2 file:text-xs file:border-0 file:bg-muted file:rounded file:px-2 file:py-1 file:cursor-pointer cursor-pointer"
+              @change="(e) => handleImageChange(e, activeEl!.index)"
             />
+            <span
+              v-if="activeButton.image"
+              class="text-xs text-muted-foreground truncate"
+            >
+              {{ activeButton.image }}
+            </span>
           </div>
         </div>
 
