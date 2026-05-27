@@ -35,12 +35,7 @@ async function deleteConfig(id: number) {
 }
 
 async function exportJson() {
-  const json = await window.pywebview!.api.export_json();
-  const blob = new Blob([json], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "devdeck-configs.json";
-  a.click();
+  await window.pywebview!.api.export_json();
 }
 
 async function importJson(file: File) {

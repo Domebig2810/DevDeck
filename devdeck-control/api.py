@@ -71,9 +71,39 @@ class Api:
         return self.load_all()
 
     def export_json(self):
+        from pathlib import Path
         rows = db.load_all()
-        return json.dumps([asdict(cfg) for _, cfg in rows], indent=4)
+        data = json.dumps([asdict(cfg) for _, cfg in rows], indent=4)
+    
+        # Name aus der ersten Config, fallback auf "devdeck-configs"
+        name = rows[0][1].name.strip() if rows else "devdeck-configs"
+        # Ungültige Zeichen für Dateinamen entfernen
+        safe_name = "".join(c for c in name if c not in r'\/:*?"<>|').strip()
+        if not safe_name:
+            safe_name = "devdeck-configs"
+    
+        downloads = Path.home() / "Downloads"
+        downloads.mkdir(exist_ok=True)
+    
+        out_path = downloads / f"{safe_name}.json"
+        counter = 1
+        while out_path.exists():
+            out_path = downloads / f"{safe_name}-{counter:02d}.json"
+            counter += 1
+    
+        out_path.write_text(data, encoding="utf-8")
+        return str(out_path)
 
+    def reveal_in_finder(self, path: str):
+        import subprocess
+        import sys
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", path])
+        elif sys.platform == "win32":
+            subprocess.Popen(["explorer", "/select,", path])
+        else:
+            subprocess.Popen(["xdg-open", str(Path(path).parent)])
+            
     # ── Commands ──────────────────────────────────────────────────────────────
 
     def run_command(self, command: str, step: Optional[float] = None):
