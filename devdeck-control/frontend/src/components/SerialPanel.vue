@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue";
 import { Button } from "@/components/ui/button";
-import { Usb, Unplug } from "lucide-vue-next";
+import { Usb, Unplug, Wrench } from "lucide-vue-next";
+import CalibrationDialog from "@/components/CalibrationDialog.vue";
+
+const calibrating = ref(false);
 
 const connected = ref(false);
 const port = ref<string | null>(null);
@@ -55,12 +58,24 @@ onUnmounted(() => {
       v-if="connected"
       size="sm"
       variant="ghost"
+      class="h-6 px-2 text-xs text-muted-foreground"
+      title="Hardware kalibrieren"
+      @click="calibrating = true"
+    >
+      <Wrench class="size-3" />
+    </Button>
+    <Button
+      v-if="connected"
+      size="sm"
+      variant="ghost"
       class="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
       title="Trennen"
       @click="disconnect"
     >
       <Unplug class="size-3" />
     </Button>
+
+    <CalibrationDialog v-if="calibrating" @close="calibrating = false" />
     <Button
       v-else
       size="sm"

@@ -19,7 +19,7 @@ from models.configuration import (
     Configuration,
     EncoderConfig,
 )
-from serial_bridge import ENC_TO_SLOTS, SerialBridge
+from serial_bridge import SerialBridge
 from utils.command_runner import run_command
 from utils.image_utils import (
     image_file_to_ssd1306,
@@ -32,12 +32,15 @@ IMAGES_DIR = os.path.join(BASE_DIR, "images")
 # ── Hardware-Zuordnung ────────────────────────────────────────────────────────
 # Physisches Layout pro Reihe: [OLED][OLED][ENCODER rechts]
 #
-# HW_BUTTON_TO_LOGICAL: welcher Firmware-Button-Index (A0..A5) gehört zu
-# welchem logischen Button (0-5, zeilenweise links oben -> rechts unten).
-# LOGICAL_TO_SLOT: auf welchem OLED-Slot (TCA-Kanal) der logische Button liegt.
-# Bei falscher Zuordnung nur diese Tabellen anpassen - kein Reflash nötig.
-HW_BUTTON_TO_LOGICAL = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5}
-LOGICAL_TO_SLOT = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5}
+# Die tatsächliche Verdrahtung (Firmware-Index -> physische Position) wird
+# über den Kalibrier-Assistenten ermittelt und in hw_mapping.json gespeichert:
+#   buttons:  Firmware-Button-Index (A0..A5) -> logische Position 0-5
+#             (zeilenweise links oben -> rechts unten)
+#   slots:    logische Position 0-5 -> OLED-Slot (TCA-Kanal)
+#   encoders: Firmware-Encoder-Index -> Reihe 0-2 (oben -> unten)
+MAPPING_PATH = os.path.join(BASE_DIR, "hw_mapping.json")
+_IDENTITY6 = {i: i for i in range(6)}
+_IDENTITY3 = {i: i for i in range(3)}
 
 
 def _resolve_image(path: str) -> str:
@@ -52,6 +55,9 @@ class Api:
         self._window = None
         self._active_config_id: Optional[int] = None
         self._enc_values = [50.0, 50.0, 50.0]  # angezeigter Wert pro Encoder
+        self._test_mode = False
+        self._test_events: list = []
+        self._load_hw_mapping()
         self._bridge = SerialBridge(
             on_encoder=self._handle_encoder,
             on_encoder_button=self._handle_encoder_button,
@@ -221,6 +227,55 @@ class Api:
     def get_active_config_id(self):
         return self._active_config_id
 
+    # ── Hardware-Kalibrierung ─────────────────────────────────────────────────
+
+    def _load_hw_mapping(self):
+        self._btn_map = dict(_IDENTITY6)   # hw button -> logische Position
+        self._slot_map = dict(_IDENTITY6)  # logische Position -> OLED-Slot
+        self._enc_map = dict(_IDENTITY3)   # hw encoder -> Reihe
+        try:
+            with open(MAPPING_PATH, encoding="utf-8") as f:
+                data = json.load(f)
+            self._btn_map = {int(k): int(v) for k, v in data.get("buttons", {}).items()}
+            self._slot_map = {int(k): int(v) for k, v in data.get("slots", {}).items()}
+            self._enc_map = {int(k): int(v) for k, v in data.get("encoders", {}).items()}
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass  # kaputte Datei -> Identität behalten
+
+    def hw_test_start(self):
+        """Kalibriermodus: zeigt auf jedem OLED-Kanal seine Ziffer, sammelt Events."""
+        self._test_mode = True
+        self._test_events = []
+        if self._bridge.connected:
+            for ch in range(NUM_BUTTONS):
+                self._bridge.send_image(ch, render_label_to_ssd1306(str(ch)))
+                time.sleep(0.08)
+        return {"ok": self._bridge.connected}
+
+    def hw_test_events(self):
+        return list(self._test_events)
+
+    def hw_test_stop(self):
+        self._test_mode = False
+        self._test_events = []
+        self._sync_device()
+        return {"ok": True}
+
+    def save_hw_mapping(self, buttons: dict, slots: dict, encoders: dict):
+        """Speichert die Kalibrierung und wendet sie sofort an."""
+        data = {
+            "buttons": {str(k): int(v) for k, v in buttons.items()},
+            "slots": {str(k): int(v) for k, v in slots.items()},
+            "encoders": {str(k): int(v) for k, v in encoders.items()},
+        }
+        with open(MAPPING_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        self._load_hw_mapping()
+        self.hw_test_stop()
+        return {"ok": True}
+
     def _handle_connect(self, port: str):
         self._sync_device()
 
@@ -240,7 +295,7 @@ class Api:
             self._active_config_id, cfg = rows[0]
 
         for i, btn in enumerate(cfg.buttons[:NUM_BUTTONS]):
-            slot = LOGICAL_TO_SLOT.get(i, i)
+            slot = self._slot_map.get(i, i)
             try:
                 img_path = _resolve_image(btn.image)
                 if btn.display_mode == "image" and img_path and os.path.exists(img_path):
@@ -264,41 +319,50 @@ class Api:
         return None
 
     def _handle_encoder(self, idx: int, delta: int):
-        cfg = self._get_active_cfg()
-        if cfg is None or not (0 <= idx < len(cfg.encoders)):
+        if self._test_mode:
+            self._test_events.append({"type": "encoder", "index": idx})
             return
-        enc = cfg.encoders[idx]
+        row = self._enc_map.get(idx, idx)
+        cfg = self._get_active_cfg()
+        if cfg is None or not (0 <= row < len(cfg.encoders)):
+            return
+        enc = cfg.encoders[row]
 
         cmd = enc.clockwise_command if delta > 0 else enc.counter_command
         if cmd:
             run_command(cmd, step=enc.step * abs(delta))
 
         # Wert mitführen, Overlay nur auf dem OLED direkt neben dem Encoder
-        # (Encoder sitzt rechts -> rechtes OLED der Reihe)
-        self._enc_values[idx] = max(0.0, min(100.0, self._enc_values[idx] + delta * enc.step))
-        label = (getattr(enc, "label", "") or f"ENC {idx + 1}").strip()
-        slots = ENC_TO_SLOTS.get(idx)
-        if slots:
-            self._bridge.send_overlay(slots[-1], label, round(self._enc_values[idx]), duration_ms=1200)
+        # (Encoder sitzt rechts -> rechtes OLED der Reihe = logischer Button 2*row+1)
+        self._enc_values[row] = max(0.0, min(100.0, self._enc_values[row] + delta * enc.step))
+        label = (getattr(enc, "label", "") or f"ENC {row + 1}").strip()
+        slot = self._slot_map.get(2 * row + 1, 2 * row + 1)
+        self._bridge.send_overlay(slot, label, round(self._enc_values[row]), duration_ms=1200)
 
     def _handle_encoder_button(self, idx: int, pressed: bool):
+        if self._test_mode:
+            return
         if not pressed:
             return
+        row = self._enc_map.get(idx, idx)
         cfg = self._get_active_cfg()
-        if cfg is None or not (0 <= idx < len(cfg.encoders)):
+        if cfg is None or not (0 <= row < len(cfg.encoders)):
             return
-        enc = cfg.encoders[idx]
+        enc = cfg.encoders[row]
         if enc.click_command:
             run_command(enc.click_command)
 
     def _handle_button(self, idx: int, pressed: bool):
         if not pressed:
             return
-        logical = HW_BUTTON_TO_LOGICAL.get(idx, idx)
+        if self._test_mode:
+            self._test_events.append({"type": "button", "index": idx})
+            return
+        logical = self._btn_map.get(idx, idx)
         cfg = self._get_active_cfg()
         if cfg is None or not (0 <= logical < len(cfg.buttons)):
             return
-        self._bridge.send_flash(LOGICAL_TO_SLOT.get(logical, logical))
+        self._bridge.send_flash(self._slot_map.get(logical, logical))
         btn = cfg.buttons[logical]
         if btn.command:
             run_command(btn.command)
