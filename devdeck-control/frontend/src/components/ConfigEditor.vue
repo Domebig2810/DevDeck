@@ -62,7 +62,11 @@ async function handleImageChange(e: Event, buttonIndex: number) {
     reader.readAsDataURL(file);
   });
 
-  const result = await window.pywebview!.api.convert_image(base64, buttonIndex);
+  const result = await window.pywebview!.api.convert_image(
+    base64,
+    buttonIndex,
+    selectedId.value,
+  );
   if (result?.path && local.value) {
     local.value.buttons[buttonIndex].image = result.path;
     local.value.buttons[buttonIndex].image_preview = result.base64;
@@ -183,7 +187,10 @@ const editingName = ref(false);
                 "
               >
                 <img
-                  :src="`file://${local.buttons[(i - 1) * 2 + 1].image}`"
+                  :src="
+                    local.buttons[(i - 1) * 2 + 1].image_preview ||
+                    local.buttons[(i - 1) * 2 + 1].image
+                  "
                   class="w-full h-full object-cover absolute inset-0"
                 />
               </template>

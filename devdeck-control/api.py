@@ -18,17 +18,22 @@ from models.configuration import (
     Configuration,
     EncoderConfig,
 )
-from serial_bridge import SerialBridge
+from serial_bridge import ENC_TO_SLOTS, SerialBridge
 from utils.command_runner import run_command
-from utils.image_utils import convert_to_bmp_128x64
+from utils.image_utils import (
+    image_file_to_ssd1306,
+    render_label_to_ssd1306,
+)
 
 
 class Api:
     def __init__(self):
         self._window = None
         self._active_config_id: Optional[int] = None
+        self._enc_values = [50.0, 50.0, 50.0]  # angezeigter Wert pro Encoder
         self._bridge = SerialBridge(
             on_encoder=self._handle_encoder,
+            on_encoder_button=self._handle_encoder_button,
             on_button=self._handle_button,
             on_connect=self._handle_connect,
             on_disconnect=self._handle_disconnect,
@@ -58,7 +63,17 @@ class Api:
 
     def load_all(self):
         rows = db.load_all()
-        return [{"id": rid, "config": asdict(cfg)} for rid, cfg in rows]
+        result = []
+        for rid, cfg in rows:
+            d = asdict(cfg)
+            # Bild-Previews als Base64 mitliefern, damit sie nach Neustart sichtbar sind
+            for b in d["buttons"]:
+                if b.get("image") and os.path.exists(b["image"]):
+                    with open(b["image"], "rb") as f:
+                        encoded = base64.b64encode(f.read()).decode("utf-8")
+                    b["image_preview"] = f"data:image/bmp;base64,{encoded}"
+            result.append({"id": rid, "config": d})
+        return result
 
     def create_config(self, name: str):
         cfg = Configuration(
@@ -72,6 +87,8 @@ class Api:
     def update_config(self, row_id: int, config_dict: dict):
         cfg = Configuration(**config_dict)
         db.update(row_id, cfg)
+        if row_id == self._active_config_id:
+            self._sync_device()  # Änderungen sofort auf der Hardware zeigen
         return {"ok": True}
 
     def delete_config(self, row_id: int):
@@ -148,8 +165,8 @@ class Api:
 
     def serial_connect(self, port: str):
         ok = self._bridge.connect(port)
-        if ok and self._active_config_id is not None:
-            self._push_labels_to_arduino()
+        if ok:
+            self._sync_device()
         return {"ok": ok}
 
     def serial_disconnect(self):
@@ -173,27 +190,42 @@ class Api:
         return {"port": _SB.detect_arduino()}
 
     def set_active_config(self, row_id: int):
+        changed = row_id != self._active_config_id
         self._active_config_id = row_id
-        if self._bridge.connected:
-            self._push_labels_to_arduino()
+        if changed and self._bridge.connected:
+            self._sync_device()
         return {"ok": True}
 
     def get_active_config_id(self):
         return self._active_config_id
 
     def _handle_connect(self, port: str):
-        self._push_labels_to_arduino()
+        self._sync_device()
 
     def _handle_disconnect(self):
         pass  # auto-reconnect loop in SerialBridge will pick it back up
 
-    def _push_labels_to_arduino(self):
+    def _sync_device(self):
+        """Bespielt alle 6 OLEDs mit dem Inhalt der aktiven Config."""
+        if not self._bridge.connected:
+            return
         cfg = self._get_active_cfg()
         if cfg is None:
-            return
-        for i, enc in enumerate(cfg.encoders[:3]):
-            label = enc.label if hasattr(enc, "label") and enc.label else f"ENC{i}"
-            self._bridge.send_label(i, label)
+            # Erste Config als Fallback aktivieren
+            rows = db.load_all()
+            if not rows:
+                return
+            self._active_config_id, cfg = rows[0]
+
+        for i, btn in enumerate(cfg.buttons[:NUM_BUTTONS]):
+            try:
+                if btn.display_mode == "image" and btn.image and os.path.exists(btn.image):
+                    raw = image_file_to_ssd1306(btn.image)
+                else:
+                    raw = render_label_to_ssd1306(btn.label or f"Btn {i + 1}")
+                self._bridge.send_image(i, raw)
+            except Exception:
+                self._bridge.send_clear(i)
 
     def _get_active_cfg(self) -> Optional[Configuration]:
         if self._active_config_id is None:
@@ -206,25 +238,40 @@ class Api:
 
     def _handle_encoder(self, idx: int, delta: int):
         cfg = self._get_active_cfg()
-        if cfg is None or idx >= len(cfg.encoders):
+        if cfg is None or not (0 <= idx < len(cfg.encoders)):
             return
         enc = cfg.encoders[idx]
-        if delta > 0:
-            cmd = enc.clockwise_command
-        else:
-            cmd = enc.counter_command
+
+        cmd = enc.clockwise_command if delta > 0 else enc.counter_command
         if cmd:
             run_command(cmd, step=enc.step * abs(delta))
-        # Keep Arduino display in sync
-        self._bridge.send_value(idx, 50)  # neutral display; remove if not desired
 
-    def _handle_button(self, idx: int):
+        # Wert mitführen und als Overlay auf den beiden OLEDs der Reihe zeigen
+        self._enc_values[idx] = max(0.0, min(100.0, self._enc_values[idx] + delta * enc.step))
+        label = (getattr(enc, "label", "") or f"ENC {idx + 1}").strip()
+        for slot in ENC_TO_SLOTS.get(idx, ()):
+            self._bridge.send_overlay(slot, label, round(self._enc_values[idx]), duration_ms=1200)
+
+    def _handle_encoder_button(self, idx: int, pressed: bool):
+        if not pressed:
+            return
         cfg = self._get_active_cfg()
-        if cfg is None or idx >= len(cfg.encoders):
+        if cfg is None or not (0 <= idx < len(cfg.encoders)):
             return
         enc = cfg.encoders[idx]
         if enc.click_command:
             run_command(enc.click_command)
+
+    def _handle_button(self, idx: int, pressed: bool):
+        if not pressed:
+            return
+        cfg = self._get_active_cfg()
+        if cfg is None or not (0 <= idx < len(cfg.buttons)):
+            return
+        self._bridge.send_flash(idx)
+        btn = cfg.buttons[idx]
+        if btn.command:
+            run_command(btn.command)
 
     # ── Commands ──────────────────────────────────────────────────────────────
 
@@ -234,9 +281,13 @@ class Api:
 
     # ── Images ────────────────────────────────────────────────────────────────
 
-    def convert_image(self, base64_data: str, button_index: int):
+    def convert_image(self, base64_data: str, button_index: int, config_id: Optional[int] = None):
         os.makedirs("images", exist_ok=True)
-        out = f"images/btn_{button_index}.bmp"
+        # Dateiname pro Config, sonst überschreiben sich Configs gegenseitig
+        if config_id is not None:
+            out = f"images/cfg_{config_id}_btn_{button_index}.bmp"
+        else:
+            out = f"images/btn_{button_index}.bmp"
 
         img_bytes = base64.b64decode(base64_data)
         img = Image.open(BytesIO(img_bytes))

@@ -1,16 +1,21 @@
 """
-Serial bridge between DevDeck Arduino and devdeck-control.
+Serial bridge between the DevDeck Arduino (JSON firmware) and devdeck-control.
 
-Protocol (Arduino → PC):
-  ENC:<idx>:<delta>   encoder turned (delta = +N or -N)
-  BTN:<idx>           encoder button pressed
-  READY               Arduino boot complete
+Protocol (Arduino → PC), one JSON object per line:
+  {"event":"ready"}
+  {"event":"encoder","index":0,"value":1}         # delta, +/-
+  {"event":"encoder_button","index":0,"value":1}  # 1=press, 0=release
+  {"event":"button","index":3,"value":1}          # 1=press, 0=release
 
 Protocol (PC → Arduino):
-  LABEL:<idx>:<text>  update OLED label for encoder idx
-  VAL:<idx>:<0-100>   update OLED value display for encoder idx
+  {"cmd":"image","slot":2,"data":"<base64>"}      # 1024 byte SSD1306 bitmap
+  {"cmd":"overlay","slot":2,"label":"VOL","value":75,"duration_ms":1000}
+  {"cmd":"clear","slot":2}
+  {"cmd":"flash","slot":3}
 """
 
+import base64
+import json
 import threading
 import time
 from typing import Callable, Optional
@@ -22,9 +27,12 @@ try:
 except ImportError:
     HAS_SERIAL = False
 
+# Encoder i steuert die beiden OLEDs seiner Reihe
+ENC_TO_SLOTS = {0: (0, 1), 1: (2, 3), 2: (4, 5)}
+
 # USB Vendor IDs for Arduino / compatible boards
 _ARDUINO_VIDS = {
-    0x2341,  # Arduino SA
+    0x2341,  # Arduino SA (auch UNO R4 WiFi)
     0x1A86,  # CH340 (Nano clones)
     0x0403,  # FTDI
     0x10C4,  # Silicon Labs CP210x
@@ -39,7 +47,7 @@ def _is_arduino_port(port_info) -> bool:
         return True
     desc = (getattr(port_info, "description", "") or "").lower()
     mfg = (getattr(port_info, "manufacturer", "") or "").lower()
-    keywords = ("arduino", "ch340", "ch341", "ftdi", "cp210", "usb serial", "uart")
+    keywords = ("arduino", "uno", "ch340", "ch341", "ftdi", "cp210", "usb serial", "uart")
     return any(k in desc or k in mfg for k in keywords)
 
 
@@ -47,19 +55,23 @@ class SerialBridge:
     def __init__(
         self,
         on_encoder: Callable[[int, int], None],
-        on_button: Callable[[int], None],
+        on_encoder_button: Callable[[int, bool], None],
+        on_button: Callable[[int, bool], None],
         on_connect: Optional[Callable[[str], None]] = None,
         on_disconnect: Optional[Callable[[], None]] = None,
     ):
-        self._on_encoder = on_encoder
-        self._on_button = on_button
+        self._on_encoder = on_encoder              # (index, delta)
+        self._on_encoder_button = on_encoder_button  # (index, pressed)
+        self._on_button = on_button                # (index, pressed)
         self._on_connect = on_connect
         self._on_disconnect = on_disconnect
         self._port: Optional["serial.Serial"] = None
         self._thread: Optional[threading.Thread] = None
         self._watch_thread: Optional[threading.Thread] = None
         self._running = False
-        self._auto = False  # auto-reconnect mode
+        self._auto = False
+        self._baud = 115200
+        self._write_lock = threading.Lock()
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -97,7 +109,9 @@ class SerialBridge:
             return False
         self.disconnect()
         try:
-            self._port = serial.Serial(port, baud, timeout=1)
+            self._port = serial.Serial(port, baud, timeout=0.5)
+            time.sleep(2.0)  # Arduino-Reset / Boot abwarten
+            self._port.reset_input_buffer()
             self._running = True
             self._thread = threading.Thread(target=self._read_loop, daemon=True)
             self._thread.start()
@@ -109,7 +123,10 @@ class SerialBridge:
     def disconnect(self):
         self._running = False
         if self._port and self._port.is_open:
-            self._port.close()
+            try:
+                self._port.close()
+            except Exception:
+                pass
         self._port = None
 
     @property
@@ -120,20 +137,43 @@ class SerialBridge:
     def port_name(self) -> Optional[str]:
         return self._port.name if self.connected else None
 
-    def send_label(self, idx: int, text: str):
-        self._send(f"LABEL:{idx}:{text}")
+    # ── Befehle an das Arduino ────────────────────────────────────────────────
 
-    def send_value(self, idx: int, value: int):
-        self._send(f"VAL:{idx}:{value}")
+    def send_image(self, slot: int, raw_1024: bytes):
+        if len(raw_1024) != 1024:
+            return
+        self._send({
+            "cmd": "image",
+            "slot": slot,
+            "data": base64.b64encode(raw_1024).decode("ascii"),
+        })
+
+    def send_overlay(self, slot: int, label: str, value: int, duration_ms: int = 1000):
+        self._send({
+            "cmd": "overlay",
+            "slot": slot,
+            "label": (label or "")[:15],
+            "value": int(value),
+            "duration_ms": int(duration_ms),
+        })
+
+    def send_flash(self, slot: int):
+        self._send({"cmd": "flash", "slot": slot})
+
+    def send_clear(self, slot: int):
+        self._send({"cmd": "clear", "slot": slot})
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
-    def _send(self, line: str):
-        if self.connected:
-            try:
-                self._port.write((line + "\n").encode())
-            except Exception:
-                pass
+    def _send(self, payload: dict):
+        if not self.connected:
+            return
+        msg = json.dumps(payload, separators=(",", ":")) + "\n"
+        try:
+            with self._write_lock:
+                self._port.write(msg.encode())
+        except Exception:
+            pass
 
     def _watch_loop(self):
         """Periodically scan for an Arduino and connect when found."""
@@ -141,9 +181,12 @@ class SerialBridge:
             if not self.connected:
                 port = self.detect_arduino()
                 if port:
-                    ok = self.connect(port, getattr(self, "_baud", 115200))
+                    ok = self.connect(port, self._baud)
                     if ok and self._on_connect:
-                        self._on_connect(port)
+                        try:
+                            self._on_connect(port)
+                        except Exception:
+                            pass
             time.sleep(2)
 
     def _read_loop(self):
@@ -154,7 +197,10 @@ class SerialBridge:
                 self._running = False
                 self._port = None
                 if self._on_disconnect:
-                    self._on_disconnect()
+                    try:
+                        self._on_disconnect()
+                    except Exception:
+                        pass
                 break
 
             if not raw:
@@ -164,17 +210,21 @@ class SerialBridge:
             if not line:
                 continue
 
-            parts = line.split(":")
-            if parts[0] == "ENC" and len(parts) == 3:
-                try:
-                    idx = int(parts[1])
-                    delta = int(parts[2])
-                    self._on_encoder(idx, delta)
-                except ValueError:
-                    pass
-            elif parts[0] == "BTN" and len(parts) == 2:
-                try:
-                    idx = int(parts[1])
-                    self._on_button(idx)
-                except ValueError:
-                    pass
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            event = obj.get("event", "")
+            index = obj.get("index", -1)
+            value = obj.get("value", 0)
+
+            try:
+                if event == "encoder":
+                    self._on_encoder(index, value)
+                elif event == "encoder_button":
+                    self._on_encoder_button(index, value == 1)
+                elif event == "button":
+                    self._on_button(index, value == 1)
+            except Exception:
+                pass
