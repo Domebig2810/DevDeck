@@ -18,6 +18,7 @@ from models.configuration import (
     Configuration,
     EncoderConfig,
 )
+from serial_bridge import SerialBridge
 from utils.command_runner import run_command
 from utils.image_utils import convert_to_bmp_128x64
 
@@ -25,6 +26,11 @@ from utils.image_utils import convert_to_bmp_128x64
 class Api:
     def __init__(self):
         self._window = None
+        self._active_config_id: Optional[int] = None
+        self._bridge = SerialBridge(
+            on_encoder=self._handle_encoder,
+            on_button=self._handle_button,
+        )
 
     def _win(self):
         if self._window is None:
@@ -131,6 +137,72 @@ class Api:
             subprocess.Popen(["explorer", "/select,", path])
         else:
             subprocess.Popen(["xdg-open", str(Path(path).parent)])
+
+    # ── Serial ────────────────────────────────────────────────────────────────
+
+    def serial_list_ports(self):
+        return SerialBridge.list_ports()
+
+    def serial_connect(self, port: str):
+        ok = self._bridge.connect(port)
+        if ok and self._active_config_id is not None:
+            self._push_labels_to_arduino()
+        return {"ok": ok}
+
+    def serial_disconnect(self):
+        self._bridge.disconnect()
+        return {"ok": True}
+
+    def serial_status(self):
+        return {"connected": self._bridge.connected}
+
+    def set_active_config(self, row_id: int):
+        self._active_config_id = row_id
+        if self._bridge.connected:
+            self._push_labels_to_arduino()
+        return {"ok": True}
+
+    def get_active_config_id(self):
+        return self._active_config_id
+
+    def _push_labels_to_arduino(self):
+        cfg = self._get_active_cfg()
+        if cfg is None:
+            return
+        for i, enc in enumerate(cfg.encoders[:3]):
+            label = enc.label if hasattr(enc, "label") and enc.label else f"ENC{i}"
+            self._bridge.send_label(i, label)
+
+    def _get_active_cfg(self) -> Optional[Configuration]:
+        if self._active_config_id is None:
+            return None
+        rows = db.load_all()
+        for rid, cfg in rows:
+            if rid == self._active_config_id:
+                return cfg
+        return None
+
+    def _handle_encoder(self, idx: int, delta: int):
+        cfg = self._get_active_cfg()
+        if cfg is None or idx >= len(cfg.encoders):
+            return
+        enc = cfg.encoders[idx]
+        if delta > 0:
+            cmd = enc.clockwise_command
+        else:
+            cmd = enc.counter_command
+        if cmd:
+            run_command(cmd, step=enc.step * abs(delta))
+        # Keep Arduino display in sync
+        self._bridge.send_value(idx, 50)  # neutral display; remove if not desired
+
+    def _handle_button(self, idx: int):
+        cfg = self._get_active_cfg()
+        if cfg is None or idx >= len(cfg.encoders):
+            return
+        enc = cfg.encoders[idx]
+        if enc.click_command:
+            run_command(enc.click_command)
 
     # ── Commands ──────────────────────────────────────────────────────────────
 

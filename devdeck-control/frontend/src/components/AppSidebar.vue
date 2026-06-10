@@ -24,7 +24,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useConfigs } from "@/composables/useConfigs";
-import { ref } from "vue";
+import SerialPanel from "@/components/SerialPanel.vue";
+import { ref, watch } from "vue";
 
 const { configs, selectedId, createConfig, deleteConfig, importJson } =
   useConfigs();
@@ -84,6 +85,13 @@ async function confirmDelete() {
 function cancelDelete() {
   pendingDeleteId.value = null;
 }
+
+// When the user switches config while serial is connected, push it to Arduino
+watch(selectedId, async (id) => {
+  if (id !== null && window.pywebview) {
+    await window.pywebview.api.set_active_config(id);
+  }
+});
 </script>
 
 <template>
@@ -162,6 +170,8 @@ function cancelDelete() {
         </SidebarMenuItem>
       </SidebarMenu>
     </SidebarFooter>
+
+    <SerialPanel />
 
     <input
       ref="fileInput"

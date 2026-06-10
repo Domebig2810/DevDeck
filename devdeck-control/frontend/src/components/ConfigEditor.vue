@@ -286,6 +286,15 @@ const editingName = ref(false);
           </h3>
 
           <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-medium">Label (OLED-Anzeige)</label>
+            <Input
+              v-model="activeEncoder.label"
+              placeholder="z.B. VOL"
+              @change="save"
+            />
+          </div>
+
+          <div class="flex flex-col gap-1.5">
             <label class="text-xs font-medium flex items-center gap-1.5">
               <RotateCw class="size-3" /> Rechts-Befehl
             </label>

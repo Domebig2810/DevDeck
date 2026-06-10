@@ -15,6 +15,7 @@ class ButtonConfig:
 
 @dataclass
 class EncoderConfig:
+    label: str = ""
     step: float = 1.0
     clockwise_command: str = ""  # {step} replaced at runtime
     counter_command: str = ""  # {step} replaced at runtime

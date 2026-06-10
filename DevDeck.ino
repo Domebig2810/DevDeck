@@ -25,7 +25,10 @@ int lastPosition[3] = { 0, 0, 0 };
 bool lastButton[3] = { HIGH, HIGH, HIGH };
 unsigned long pressTime[3] = { 0, 0, 0 };
 
-const char* labels[3] = { "VOL", "MIC", "CAM" };
+char labels[3][16] = { "VOL", "MIC", "CAM" };
+
+// Serial input buffer
+String serialBuf = "";
 
 void drawValue(uint8_t channel, const char* label, int value, bool pressed) {
   tcaSelect(channel);
@@ -55,6 +58,30 @@ void drawValue(uint8_t channel, const char* label, int value, bool pressed) {
   oled.display();
 }
 
+// Parse incoming serial commands: LABEL:i:TEXT  or  VAL:i:NUM
+void handleSerialCommand(const String& line) {
+  if (line.startsWith("LABEL:")) {
+    int c1 = line.indexOf(':', 6);
+    if (c1 < 0) return;
+    int idx = line.substring(6, c1).toInt();
+    if (idx < 0 || idx > 2) return;
+    String text = line.substring(c1 + 1);
+    text.trim();
+    text.toCharArray(labels[idx], sizeof(labels[idx]));
+    drawValue(idx * 2,     labels[idx], values[idx], false);
+    drawValue(idx * 2 + 1, labels[idx], values[idx], false);
+  } else if (line.startsWith("VAL:")) {
+    int c1 = line.indexOf(':', 4);
+    if (c1 < 0) return;
+    int idx = line.substring(4, c1).toInt();
+    if (idx < 0 || idx > 2) return;
+    int val = line.substring(c1 + 1).toInt();
+    values[idx] = constrain(val, 0, 100);
+    drawValue(idx * 2,     labels[idx], values[idx], false);
+    drawValue(idx * 2 + 1, labels[idx], values[idx], false);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   delay(2000);
@@ -65,25 +92,31 @@ void setup() {
     pinMode(SW_PINS[i], INPUT_PULLUP);
   }
 
-  Serial.println("Init OLEDs...");
   for (uint8_t ch = 0; ch < NUM_OLEDS; ch++) {
     tcaSelect(ch);
-    if (!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-      Serial.print("OLED ");
-      Serial.print(ch);
-      Serial.println(" FAIL");
-      continue;
-    }
+    if (!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) continue;
   }
 
   for (int i = 0; i < 3; i++) {
     drawValue(i * 2,     labels[i], values[i], false);
     drawValue(i * 2 + 1, labels[i], values[i], false);
   }
-  Serial.println("Bereit!");
+  Serial.println("READY");
 }
 
 void loop() {
+  // Read incoming serial commands
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n') {
+      serialBuf.trim();
+      if (serialBuf.length() > 0) handleSerialCommand(serialBuf);
+      serialBuf = "";
+    } else {
+      serialBuf += c;
+    }
+  }
+
   unsigned long now = millis();
 
   for (int i = 0; i < 3; i++) {
@@ -99,9 +132,11 @@ void loop() {
       drawValue(i * 2,     labels[i], values[i], false);
       drawValue(i * 2 + 1, labels[i], values[i], false);
 
-      Serial.print(labels[i]);
-      Serial.print(" = ");
-      Serial.println(values[i]);
+      // ENC:index:delta
+      Serial.print("ENC:");
+      Serial.print(i);
+      Serial.print(":");
+      Serial.println(delta);
     }
 
     bool button = digitalRead(SW_PINS[i]);
@@ -114,8 +149,9 @@ void loop() {
           pressTime[i] = now;
           drawValue(i * 2,     labels[i], values[i], true);
           drawValue(i * 2 + 1, labels[i], values[i], true);
-          Serial.print(labels[i]);
-          Serial.println(" gedrueckt");
+          // BTN:index
+          Serial.print("BTN:");
+          Serial.println(i);
         }
       }
     }
