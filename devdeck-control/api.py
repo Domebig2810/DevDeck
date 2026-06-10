@@ -246,11 +246,12 @@ class Api:
         if cmd:
             run_command(cmd, step=enc.step * abs(delta))
 
-        # Wert mitführen und als Overlay auf den beiden OLEDs der Reihe zeigen
+        # Wert mitführen und als Overlay nur auf dem linken OLED der Reihe zeigen
         self._enc_values[idx] = max(0.0, min(100.0, self._enc_values[idx] + delta * enc.step))
         label = (getattr(enc, "label", "") or f"ENC {idx + 1}").strip()
-        for slot in ENC_TO_SLOTS.get(idx, ()):
-            self._bridge.send_overlay(slot, label, round(self._enc_values[idx]), duration_ms=1200)
+        slots = ENC_TO_SLOTS.get(idx)
+        if slots:
+            self._bridge.send_overlay(slots[0], label, round(self._enc_values[idx]), duration_ms=1200)
 
     def _handle_encoder_button(self, idx: int, pressed: bool):
         if not pressed:
