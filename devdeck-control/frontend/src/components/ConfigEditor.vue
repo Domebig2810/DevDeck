@@ -122,21 +122,7 @@ const editingName = ref(false);
       <div class="flex items-center justify-center flex-1 p-8">
         <div class="grid grid-cols-3 gap-3">
           <template v-for="i in 3" :key="i">
-            <!-- Encoder (linke Spalte) -->
-            <button
-              @click="select('encoder', i - 1)"
-              :class="[
-                'w-24 h-24 rounded-full border-2 flex flex-col items-center justify-center gap-0.5 transition-all text-xs font-medium',
-                isActive('encoder', i - 1)
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border bg-card hover:border-primary/50 hover:bg-accent text-muted-foreground',
-              ]"
-            >
-              <RotateCw class="size-4 opacity-40" />
-              <span>Enc {{ i }}</span>
-            </button>
-
-            <!-- Button 1 (mittlere Spalte) -->
+            <!-- Button 1 (linke Spalte) -->
             <button
               @click="select('button', (i - 1) * 2)"
               :class="[
@@ -170,7 +156,7 @@ const editingName = ref(false);
               </template>
             </button>
 
-            <!-- Button 2 (rechte Spalte) -->
+            <!-- Button 2 (mittlere Spalte) -->
             <button
               @click="select('button', (i - 1) * 2 + 1)"
               :class="[
@@ -203,6 +189,20 @@ const editingName = ref(false);
                   }}
                 </span>
               </template>
+            </button>
+
+            <!-- Encoder (rechte Spalte, wie an der Hardware) -->
+            <button
+              @click="select('encoder', i - 1)"
+              :class="[
+                'w-24 h-24 rounded-full border-2 flex flex-col items-center justify-center gap-0.5 transition-all text-xs font-medium',
+                isActive('encoder', i - 1)
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border bg-card hover:border-primary/50 hover:bg-accent text-muted-foreground',
+              ]"
+            >
+              <RotateCw class="size-4 opacity-40" />
+              <span>Enc {{ i }}</span>
             </button>
           </template>
         </div>

@@ -254,6 +254,10 @@ void setup() {
   Serial.begin(115200);
   delay(1500);
 
+  // Puffer vorreservieren: verhindert Realloc pro Zeichen beim Zeilenlesen,
+  // damit der 512-Byte-RX-Puffer bei Bild-Uploads nicht überläuft
+  serialBuffer.reserve(MAX_LINE + 8);
+
   for (int i = 0; i < 3; i++) pinMode(ENC_SW[i], INPUT_PULLUP);
   for (int i = 0; i < 6; i++) pinMode(BTN_PINS[i], INPUT_PULLUP);
 

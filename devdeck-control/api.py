@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import time
 from dataclasses import asdict
 from io import BytesIO
 from typing import Optional
@@ -24,6 +25,26 @@ from utils.image_utils import (
     image_file_to_ssd1306,
     render_label_to_ssd1306,
 )
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+IMAGES_DIR = os.path.join(BASE_DIR, "images")
+
+# ── Hardware-Zuordnung ────────────────────────────────────────────────────────
+# Physisches Layout pro Reihe: [OLED][OLED][ENCODER rechts]
+#
+# HW_BUTTON_TO_LOGICAL: welcher Firmware-Button-Index (A0..A5) gehört zu
+# welchem logischen Button (0-5, zeilenweise links oben -> rechts unten).
+# LOGICAL_TO_SLOT: auf welchem OLED-Slot (TCA-Kanal) der logische Button liegt.
+# Bei falscher Zuordnung nur diese Tabellen anpassen - kein Reflash nötig.
+HW_BUTTON_TO_LOGICAL = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5}
+LOGICAL_TO_SLOT = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5}
+
+
+def _resolve_image(path: str) -> str:
+    """Relative Bildpfade (z.B. 'images/x.bmp') am Projektordner verankern."""
+    if not path:
+        return path
+    return path if os.path.isabs(path) else os.path.join(BASE_DIR, path)
 
 
 class Api:
@@ -68,8 +89,9 @@ class Api:
             d = asdict(cfg)
             # Bild-Previews als Base64 mitliefern, damit sie nach Neustart sichtbar sind
             for b in d["buttons"]:
-                if b.get("image") and os.path.exists(b["image"]):
-                    with open(b["image"], "rb") as f:
+                img_path = _resolve_image(b.get("image", ""))
+                if img_path and os.path.exists(img_path):
+                    with open(img_path, "rb") as f:
                         encoded = base64.b64encode(f.read()).decode("utf-8")
                     b["image_preview"] = f"data:image/bmp;base64,{encoded}"
             result.append({"id": rid, "config": d})
@@ -218,14 +240,19 @@ class Api:
             self._active_config_id, cfg = rows[0]
 
         for i, btn in enumerate(cfg.buttons[:NUM_BUTTONS]):
+            slot = LOGICAL_TO_SLOT.get(i, i)
             try:
-                if btn.display_mode == "image" and btn.image and os.path.exists(btn.image):
-                    raw = image_file_to_ssd1306(btn.image)
+                img_path = _resolve_image(btn.image)
+                if btn.display_mode == "image" and img_path and os.path.exists(img_path):
+                    raw = image_file_to_ssd1306(img_path)
                 else:
                     raw = render_label_to_ssd1306(btn.label or f"Btn {i + 1}")
-                self._bridge.send_image(i, raw)
+                self._bridge.send_image(slot, raw)
             except Exception:
-                self._bridge.send_clear(i)
+                self._bridge.send_clear(slot)
+            # Drossel: 512-Byte-RX-Puffer des Arduino nicht überfahren,
+            # während es das vorherige Bild dekodiert und zeichnet
+            time.sleep(0.08)
 
     def _get_active_cfg(self) -> Optional[Configuration]:
         if self._active_config_id is None:
@@ -246,12 +273,13 @@ class Api:
         if cmd:
             run_command(cmd, step=enc.step * abs(delta))
 
-        # Wert mitführen und als Overlay nur auf dem linken OLED der Reihe zeigen
+        # Wert mitführen, Overlay nur auf dem OLED direkt neben dem Encoder
+        # (Encoder sitzt rechts -> rechtes OLED der Reihe)
         self._enc_values[idx] = max(0.0, min(100.0, self._enc_values[idx] + delta * enc.step))
         label = (getattr(enc, "label", "") or f"ENC {idx + 1}").strip()
         slots = ENC_TO_SLOTS.get(idx)
         if slots:
-            self._bridge.send_overlay(slots[0], label, round(self._enc_values[idx]), duration_ms=1200)
+            self._bridge.send_overlay(slots[-1], label, round(self._enc_values[idx]), duration_ms=1200)
 
     def _handle_encoder_button(self, idx: int, pressed: bool):
         if not pressed:
@@ -266,11 +294,12 @@ class Api:
     def _handle_button(self, idx: int, pressed: bool):
         if not pressed:
             return
+        logical = HW_BUTTON_TO_LOGICAL.get(idx, idx)
         cfg = self._get_active_cfg()
-        if cfg is None or not (0 <= idx < len(cfg.buttons)):
+        if cfg is None or not (0 <= logical < len(cfg.buttons)):
             return
-        self._bridge.send_flash(idx)
-        btn = cfg.buttons[idx]
+        self._bridge.send_flash(LOGICAL_TO_SLOT.get(logical, logical))
+        btn = cfg.buttons[logical]
         if btn.command:
             run_command(btn.command)
 
@@ -283,12 +312,14 @@ class Api:
     # ── Images ────────────────────────────────────────────────────────────────
 
     def convert_image(self, base64_data: str, button_index: int, config_id: Optional[int] = None):
-        os.makedirs("images", exist_ok=True)
-        # Dateiname pro Config, sonst überschreiben sich Configs gegenseitig
+        os.makedirs(IMAGES_DIR, exist_ok=True)
+        # Dateiname pro Config, sonst überschreiben sich Configs gegenseitig.
+        # Gespeichert wird der relative Pfad, aufgelöst wird via _resolve_image.
         if config_id is not None:
-            out = f"images/cfg_{config_id}_btn_{button_index}.bmp"
+            rel = f"images/cfg_{config_id}_btn_{button_index}.bmp"
         else:
-            out = f"images/btn_{button_index}.bmp"
+            rel = f"images/btn_{button_index}.bmp"
+        out = os.path.join(BASE_DIR, rel)
 
         img_bytes = base64.b64decode(base64_data)
         img = Image.open(BytesIO(img_bytes))
@@ -301,4 +332,4 @@ class Api:
         with open(out, "rb") as f:
             encoded = base64.b64encode(f.read()).decode("utf-8")
 
-        return {"path": out, "base64": f"data:image/bmp;base64,{encoded}"}
+        return {"path": rel, "base64": f"data:image/bmp;base64,{encoded}"}
