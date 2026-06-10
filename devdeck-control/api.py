@@ -30,7 +30,10 @@ class Api:
         self._bridge = SerialBridge(
             on_encoder=self._handle_encoder,
             on_button=self._handle_button,
+            on_connect=self._handle_connect,
+            on_disconnect=self._handle_disconnect,
         )
+        self._bridge.start_auto_connect()
 
     def _win(self):
         if self._window is None:
@@ -153,8 +156,21 @@ class Api:
         self._bridge.disconnect()
         return {"ok": True}
 
+    def serial_bridge_start_auto(self):
+        self._bridge.start_auto_connect()
+        return {"ok": True}
+
+    def serial_bridge_stop_auto(self):
+        self._bridge.stop_auto_connect()
+        self._bridge.disconnect()
+        return {"ok": True}
+
     def serial_status(self):
-        return {"connected": self._bridge.connected}
+        return {"connected": self._bridge.connected, "port": self._bridge.port_name}
+
+    def serial_detect(self):
+        from serial_bridge import SerialBridge as _SB
+        return {"port": _SB.detect_arduino()}
 
     def set_active_config(self, row_id: int):
         self._active_config_id = row_id
@@ -164,6 +180,12 @@ class Api:
 
     def get_active_config_id(self):
         return self._active_config_id
+
+    def _handle_connect(self, port: str):
+        self._push_labels_to_arduino()
+
+    def _handle_disconnect(self):
+        pass  # auto-reconnect loop in SerialBridge will pick it back up
 
     def _push_labels_to_arduino(self):
         cfg = self._get_active_cfg()
