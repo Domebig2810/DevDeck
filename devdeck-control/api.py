@@ -3,7 +3,6 @@ import json
 import os
 import re
 import sys
-import time
 from dataclasses import asdict
 from io import BytesIO
 from typing import Optional
@@ -251,7 +250,6 @@ class Api:
         if self._bridge.connected:
             for ch in range(NUM_BUTTONS):
                 self._bridge.send_image(ch, render_label_to_ssd1306(str(ch)))
-                time.sleep(0.08)
         return {"ok": self._bridge.connected}
 
     def hw_test_events(self):
@@ -302,12 +300,10 @@ class Api:
                     raw = image_file_to_ssd1306(img_path)
                 else:
                     raw = render_label_to_ssd1306(btn.label or f"Btn {i + 1}")
+                # send_image blockiert bis zum ACK der Firmware (Flusskontrolle)
                 self._bridge.send_image(slot, raw)
             except Exception:
                 self._bridge.send_clear(slot)
-            # Drossel: 512-Byte-RX-Puffer des Arduino nicht überfahren,
-            # während es das vorherige Bild dekodiert und zeichnet
-            time.sleep(0.08)
 
     def _get_active_cfg(self) -> Optional[Configuration]:
         if self._active_config_id is None:

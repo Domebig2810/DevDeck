@@ -33,8 +33,11 @@
 #include <ArduinoJson.h>
 
 // ───── Pin-Belegung ─────
+// ACHTUNG: A4/A5 sind beim UNO R4 mit SDA/SCL (I2C-Bus der OLEDs) verbunden
+// und duerfen NICHT als Buttons benutzt werden. Die zwei betroffenen Buttons
+// muessen auf D11/D12 umverdrahtet werden.
 const uint8_t ENC_SW[3]  = { 4, 7, 10 };
-const uint8_t BTN_PINS[6] = { A0, A1, A2, A3, A4, A5 };
+const uint8_t BTN_PINS[6] = { A0, A1, A2, A3, 11, 12 };
 
 // ───── TCA9548A + OLEDs ─────
 #define TCA_ADDR 0x70
@@ -192,13 +195,21 @@ void handleCommand(const String& line) {
 
   const char* cmd = doc["cmd"] | "";
   int slot = doc["slot"] | -1;
-  if (slot < 0 || slot >= NUM_OLEDS) return;
+  if (slot < 0 || slot >= NUM_OLEDS) {
+    Serial.println("{\"event\":\"ack\",\"ok\":0}");
+    return;
+  }
 
   if (strcmp(cmd, "image") == 0) {
     const char* data = doc["data"] | "";
     int n = base64Decode(data, slots[slot].image, 1024);
     slots[slot].hasImage = (n == 1024);
     drawSlot(slot);
+    // ok:0 signalisiert dem PC: Daten kamen unvollstaendig an -> erneut senden
+    Serial.print("{\"event\":\"ack\",\"ok\":");
+    Serial.print(slots[slot].hasImage ? 1 : 0);
+    Serial.println("}");
+    return;
   }
   else if (strcmp(cmd, "overlay") == 0) {
     const char* label = doc["label"] | "";
@@ -220,6 +231,7 @@ void handleCommand(const String& line) {
     slots[slot].flashUntil = millis() + 150;
     drawSlot(slot);
   }
+  Serial.println("{\"event\":\"ack\",\"ok\":1}");
 }
 
 void processSerial() {

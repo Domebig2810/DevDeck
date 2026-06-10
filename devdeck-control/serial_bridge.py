@@ -72,6 +72,8 @@ class SerialBridge:
         self._auto = False
         self._baud = 115200
         self._write_lock = threading.Lock()
+        self._ack = threading.Event()
+        self._ack_ok = False
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -140,13 +142,25 @@ class SerialBridge:
     # ── Befehle an das Arduino ────────────────────────────────────────────────
 
     def send_image(self, slot: int, raw_1024: bytes):
+        """Bild senden mit ACK-Flusskontrolle und bis zu 2 Wiederholungen.
+
+        Die Firmware bestätigt jede Zeile mit {"event":"ack","ok":0|1};
+        ok:0 heißt: Daten kamen unvollständig an (RX-Puffer-Überlauf).
+        Alte Firmware ohne ACK: Timeout wirkt als einfache Drossel.
+        """
         if len(raw_1024) != 1024:
             return
-        self._send({
+        payload = {
             "cmd": "image",
             "slot": slot,
             "data": base64.b64encode(raw_1024).decode("ascii"),
-        })
+        }
+        for _ in range(3):
+            self._ack.clear()
+            self._send(payload)
+            if self._ack.wait(timeout=0.8) and self._ack_ok:
+                return
+            time.sleep(0.05)
 
     def send_overlay(self, slot: int, label: str, value: int, duration_ms: int = 1000):
         self._send({
@@ -220,7 +234,10 @@ class SerialBridge:
             value = obj.get("value", 0)
 
             try:
-                if event == "encoder":
+                if event == "ack":
+                    self._ack_ok = obj.get("ok", 1) == 1
+                    self._ack.set()
+                elif event == "encoder":
                     self._on_encoder(index, value)
                 elif event == "encoder_button":
                     self._on_encoder_button(index, value == 1)
