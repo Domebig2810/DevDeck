@@ -127,7 +127,7 @@ start();
           unten rechts, Encoder zählen nicht).
         </p>
         <div class="grid grid-cols-2 gap-2">
-          <div v-for="(d, i) in digits" :key="i" class="flex items-center gap-2">
+          <div v-for="(_, i) in digits" :key="i" class="flex items-center gap-2">
             <span class="text-xs text-muted-foreground w-24"
               >Reihe {{ Math.floor(i / 2) + 1 }},
               {{ i % 2 === 0 ? "links" : "rechts" }}</span

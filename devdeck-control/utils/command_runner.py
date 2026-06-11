@@ -35,6 +35,8 @@ def run_command(command: str, step: Optional[float] = None) -> Tuple[bool, str]:
                 shell=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
+                # sonst blitzt für jedes Kommando ein Konsolenfenster auf
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
         else:
             proc = subprocess.Popen(

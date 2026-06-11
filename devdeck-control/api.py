@@ -176,7 +176,7 @@ class Api:
 
     def reveal_in_finder(self, path: str):
         import subprocess
-        import sys
+        from pathlib import Path
 
         if sys.platform == "darwin":
             subprocess.Popen(["open", "-R", path])

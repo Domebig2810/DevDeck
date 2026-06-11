@@ -1,10 +1,6 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
-import {
-  SidebarProvider,
-  SidebarInset,
-  SidebarTrigger,
-} from "@/components/ui/sidebar";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import AppSidebar from "@/components/AppSidebar.vue";
 import ConfigEditor from "@/components/ConfigEditor.vue";
 import { useConfigs } from "@/composables/useConfigs";

@@ -1,17 +1,12 @@
-bottle==0.13.4
-darkdetect==0.7.1
+# Plattformübergreifende Abhängigkeiten (macOS + Windows).
+# pywebview zieht seine plattformspezifischen Backends selbst:
+#   macOS:   pyobjc-* (WKWebView)
+#   Windows: pythonnet (Edge WebView2)
 pillow==11.3.0
-proxy_tools==0.1.0
-pyobjc-core==11.1
-pyobjc-framework-Cocoa==11.1
-pyobjc-framework-Quartz==11.1
-pyobjc-framework-Security==11.1
-pyobjc-framework-UniformTypeIdentifiers==11.1
-pyobjc-framework-WebKit==11.1
-PyQt6==6.10.2
-PyQt6-Qt6==6.10.2
-PyQt6_sip==13.10.2
-pyqtdarktheme==2.1.0
 pyserial==3.5
 pywebview==6.2.1
 typing_extensions==4.15.0
+
+# Nur für die alte PyQt-Oberfläche (ui/, nicht mehr vom Hauptprogramm genutzt):
+# PyQt6==6.10.2
+# pyqtdarktheme==2.1.0

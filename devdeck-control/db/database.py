@@ -6,7 +6,8 @@ from typing import List, Tuple
 
 from models.configuration import ButtonConfig, Configuration, EncoderConfig
 
-DB_PATH = Path("configs.db")
+# Am Projektordner verankern, damit der Start-CWD keine Rolle spielt
+DB_PATH = Path(__file__).resolve().parent.parent / "configs.db"
 
 
 def _connect():
